@@ -1,0 +1,19 @@
+{
+  "name": "omnivoice-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OmniVoice 자체 호스팅 음성 합성 플랫폼 — 웹 UI + REST API",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "dev:web": "pnpm --filter @omnivoice/web dev",
+    "dev:api": "bash scripts/dev-api.sh",
+    "build:web": "pnpm --filter @omnivoice/web build",
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "lint:web": "pnpm --filter @omnivoice/web lint",
+    "typecheck:web": "pnpm --filter @omnivoice/web typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

@@ -1,0 +1,41 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Data (런타임 생성물)
+data/
+*.db
+*.db-journal
+*.sqlite3
+
+# 환경
+.env
+.env.local
+.env.*.local
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code 로컬 설정
+.claude/settings.local.json
+.claude/*.lock
+
+# 로그
+*.log
+logs/

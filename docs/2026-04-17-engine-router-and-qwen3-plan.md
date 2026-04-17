@@ -53,6 +53,8 @@ qwen3-tts
 TTS_DEFAULT_ENGINE=auto
 
 QWEN3_TTS_ENABLED=true
+QWEN3_TTS_BASE_URL=
+QWEN3_TTS_API_KEY=
 QWEN3_TTS_PYTHON=/opt/engines/qwen3-tts/.venv/bin/python
 QWEN3_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
 QWEN3_TTS_CLONE_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-Base
@@ -63,7 +65,12 @@ QWEN3_TTS_ATTN_IMPLEMENTATION=flash_attention_2
 QWEN3_TTS_DEFAULT_SPEAKER=Sohee
 ```
 
-Qwen3-TTS는 OmniVoice와 같은 Python 환경에 설치하지 않고 별도 venv로 격리한다.
+Qwen3-TTS는 두 설치 형태를 지원한다.
+
+1. `QWEN3_TTS_BASE_URL`을 설정해 vLLM-Omni/OpenAI Speech API를 호출한다.
+2. `QWEN3_TTS_BASE_URL`을 비워두고 별도 venv의 Python 브리지를 실행한다.
+
+Python 브리지 방식에서는 OmniVoice와 같은 Python 환경에 설치하지 않고 별도 venv로 격리한다.
 
 ```text
 /opt/engines/omnivoice/.venv

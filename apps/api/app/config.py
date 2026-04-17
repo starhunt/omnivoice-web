@@ -27,8 +27,13 @@ class Settings(BaseSettings):
     )
     omnivoice_device: str = Field(default="mps", description="cpu | mps | cuda")
 
-    # Qwen3-TTS 엔진 (별도 venv/subprocess 사용)
+    # Qwen3-TTS 엔진 (vLLM-Omni API 또는 별도 venv/subprocess 사용)
     qwen3_tts_enabled: bool = Field(default=True)
+    qwen3_tts_base_url: str = Field(
+        default="",
+        description="vLLM-Omni/OpenAI-compatible Qwen3-TTS base URL, e.g. http://127.0.0.1:8001",
+    )
+    qwen3_tts_api_key: str = Field(default="")
     qwen3_tts_python: Path = Field(
         default=Path("/opt/engines/qwen3-tts/.venv/bin/python"),
         description="Qwen3-TTS 실행용 Python 인터프리터",

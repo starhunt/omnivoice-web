@@ -54,6 +54,8 @@ pnpm dev               # 또는 bash scripts/dev.sh
 | `OMNIVOICE_ENGINE_PYTHON` | `.../OmniVoice/.venv/bin/python` | 엔진 추론용 Python |
 | `OMNIVOICE_DEVICE` | `mps` | `cpu` / `mps` / `cuda` |
 | `QWEN3_TTS_ENABLED` | `true` | Qwen3-TTS 감지 활성화 |
+| `QWEN3_TTS_BASE_URL` | 빈 값 | vLLM-Omni/OpenAI Speech API base URL. 설정하면 이 방식이 우선 |
+| `QWEN3_TTS_API_KEY` | 빈 값 | Qwen3-TTS API에 Bearer 인증이 필요할 때 사용 |
 | `QWEN3_TTS_PYTHON` | `/opt/engines/qwen3-tts/.venv/bin/python` | Qwen3-TTS 전용 Python |
 | `QWEN3_TTS_MODEL` | `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` | Qwen custom voice 모델 |
 | `QWEN3_TTS_CLONE_MODEL` | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` | Qwen voice clone 모델 |
@@ -201,7 +203,28 @@ omnivoice-web/
 4. 아니면 OmniVoice 사용
 ```
 
-Qwen3-TTS는 현재 CLI/adapter 골격이 준비된 상태다. 실제 Qwen 설치 서버에서는 먼저 health를 확인한다.
+Qwen3-TTS는 두 형태를 지원한다.
+
+- `QWEN3_TTS_BASE_URL` 설정: A100 서버의 `vllm-omni` 같은 OpenAI 호환 Speech API를 호출한다.
+- `QWEN3_TTS_BASE_URL` 미설정: `QWEN3_TTS_PYTHON`으로 별도 Python 브리지를 실행한다.
+
+A100에서 vLLM-Omni로 이미 떠 있는 경우:
+
+```bash
+curl http://A100_SERVER:8001/v1/models
+curl http://A100_SERVER:8001/v1/audio/voices
+```
+
+`.env` 예:
+
+```env
+QWEN3_TTS_ENABLED=true
+QWEN3_TTS_BASE_URL=http://A100_SERVER:8001
+QWEN3_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+QWEN3_TTS_DEFAULT_SPEAKER=sohee
+```
+
+Python 브리지 방식으로 설치한 경우:
 
 ```bash
 $QWEN3_TTS_PYTHON apps/api/scripts/qwen3_tts_cli.py --health
@@ -212,9 +235,9 @@ $QWEN3_TTS_PYTHON apps/api/scripts/qwen3_tts_cli.py --health
 | 증상 | 원인 / 조치 |
 |------|------------|
 | `engine_path_exists: false` | `.env`의 `OMNIVOICE_ENGINE_PATH` 확인 |
-| `/v1/engines`에서 `qwen3-tts.available=false` | `QWEN3_TTS_PYTHON` 경로와 Qwen 전용 venv 확인 |
+| `/v1/engines`에서 `qwen3-tts.available=false` | `QWEN3_TTS_BASE_URL`의 `/health` 또는 `QWEN3_TTS_PYTHON` 경로 확인 |
 | `qwen3_tts_unavailable` | Qwen CLI 또는 venv가 없거나 `QWEN3_TTS_ENABLED=false` |
-| `qwen3_tts_requires_speaker_ref_audio` | Qwen은 OmniVoice prompt-only 화자를 직접 사용할 수 없음. `source_audio_path`가 있는 화자 사용 |
+| `qwen3_tts_requires_speaker_ref_audio` | Python 브리지 방식에서 OmniVoice prompt-only 화자를 직접 사용할 수 없음. `source_audio_path`가 있는 화자 사용 |
 | `engine_timeout` | 장문 생성 시 기본 900s 타임아웃. `OMNIVOICE_TIMEOUT_SEC` 환경변수로 연장 |
 | MP3 포맷 요청 시 `ffmpeg_not_found` | `brew install ffmpeg` 또는 WAV 사용 |
 | 401 `invalid_api_key` | Authorization 헤더의 Bearer 토큰이 `.env`의 `OMNIVOICE_API_KEY`와 일치하는지 확인 |

@@ -22,6 +22,7 @@ from typing import Any
 from .config import Settings, get_settings
 from .db import SessionLocal
 from .engine.omnivoice_adapter import EngineError, build_instruct_from_design, synthesize
+from .engine.qwen3_tts_adapter import requires_ref_audio as qwen3_tts_requires_ref_audio
 from .engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
 from .engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from .models import Generation, Job, Speaker
@@ -120,7 +121,7 @@ def _run_tts_job(settings: Settings, session, job: Job, gen: Generation | None) 
     ref_audio_path: Path | None = None
     voice_prompt_path: Path | None = None
     if engine_id == ENGINE_QWEN3_TTS:
-        if speaker and not speaker.source_audio_path:
+        if qwen3_tts_requires_ref_audio(settings) and speaker and not speaker.source_audio_path:
             raise RuntimeError("qwen3_tts_requires_speaker_ref_audio")
         ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker and speaker.source_audio_path else None
     else:
@@ -265,9 +266,9 @@ def synthesize_podcast_request(
             ref_audio_path: Path | None = None
             voice_prompt_path: Path | None = None
             if engine_id == ENGINE_QWEN3_TTS:
-                if speaker and not speaker.source_audio_path:
+                if qwen3_tts_requires_ref_audio(settings) and speaker and not speaker.source_audio_path:
                     raise RuntimeError("qwen3_tts_requires_speaker_ref_audio")
-                ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker.source_audio_path else None
+                ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker and speaker.source_audio_path else None
             else:
                 ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
                     settings=settings,

@@ -50,6 +50,7 @@ def _omnivoice_info(settings: Settings) -> EngineInfo:
 
 def _qwen3_tts_info(settings: Settings) -> EngineInfo:
     status = qwen3_tts_status(settings)
+    openai_compatible = status.get("backend") == "openai-compatible"
     return EngineInfo(
         id=ENGINE_QWEN3_TTS,
         name="Qwen3-TTS",
@@ -57,14 +58,14 @@ def _qwen3_tts_info(settings: Settings) -> EngineInfo:
         mode=status["mode"],
         reason=status.get("reason"),
         python=str(settings.qwen3_tts_python),
-        path=str(QWEN3_TTS_SCRIPT_PATH),
+        path=status.get("base_url") or str(QWEN3_TTS_SCRIPT_PATH),
         model=settings.qwen3_tts_model,
         capabilities=EngineCapability(
-            supports_voice_clone=True,
-            supports_voice_design=True,
+            supports_voice_clone=not openai_compatible,
+            supports_voice_design=not openai_compatible,
             supports_custom_voices=True,
             supports_native_dialogue=False,
-            supports_streaming=True,
+            supports_streaming=openai_compatible,
             max_speakers=1,
             languages=["auto", "ko", "en", "zh", "ja", "de", "fr", "ru", "pt", "es", "it"],
         ),

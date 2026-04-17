@@ -21,6 +21,7 @@ from ..engine.omnivoice_adapter import (
     synthesize,
     transcribe_ref_audio,
 )
+from ..engine.qwen3_tts_adapter import requires_ref_audio as qwen3_tts_requires_ref_audio
 from ..engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
 from ..engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from ..models import Generation, Speaker
@@ -164,7 +165,7 @@ def post_tts(
     ref_audio_path: Path | None = None
     voice_prompt_path: Path | None = None
     if engine_id == ENGINE_QWEN3_TTS:
-        if speaker and not speaker.source_audio_path:
+        if qwen3_tts_requires_ref_audio(settings) and speaker and not speaker.source_audio_path:
             raise HTTPException(status_code=400, detail="qwen3_tts_requires_speaker_ref_audio")
         ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker and speaker.source_audio_path else None
     else:

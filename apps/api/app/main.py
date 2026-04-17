@@ -14,7 +14,7 @@ from .config import get_settings
 from .db import SessionLocal, init_db
 from .default_speakers import sync_omnivoice_demo_speakers
 from .models import Generation, Job
-from .routers import assets, generations, health, jobs, meta, speakers, tts
+from .routers import assets, elevenlabs_compat, gemini_compat, generations, health, jobs, meta, openai_compat, speakers, tts
 
 logger = logging.getLogger("omnivoice-web")
 logging.basicConfig(
@@ -99,6 +99,11 @@ def create_app() -> FastAPI:
         assets.router,
     ):
         app.include_router(r, prefix="/v1")
+
+    app.include_router(elevenlabs_compat.router_v1, prefix="/v1")
+    app.include_router(elevenlabs_compat.router_v2, prefix="/v2")
+    app.include_router(openai_compat.router, prefix="/v1")
+    app.include_router(gemini_compat.router, prefix="/v1beta")
 
     @app.get("/", include_in_schema=False)
     def root() -> dict:

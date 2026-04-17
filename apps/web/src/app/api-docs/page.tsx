@@ -516,6 +516,368 @@ httpx.post(
       ],
     },
     {
+      title: "ElevenLabs 호환",
+      subtitle: "외부 클라이언트 호환용 shim",
+      endpoints: [
+        {
+          method: "GET",
+          path: "/v1/voices",
+          title: "ElevenLabs 스타일 화자 목록",
+          description:
+            "등록된 OmniVoice-Web 화자를 ElevenLabs voices 응답 형태로 반환합니다. xi-api-key 헤더를 지원합니다.",
+          samples: [
+            { lang: "cURL", code: `curl ${base}/v1/voices -H "xi-api-key: ${key}"` },
+            {
+              lang: "JavaScript",
+              code: `const voices = await fetch("${base}/v1/voices", {
+  headers: { "xi-api-key": "${key}" }
+}).then(r => r.json());`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+voices = httpx.get("${base}/v1/voices", headers={"xi-api-key": "${key}"}).json()`,
+            },
+          ],
+          response: {
+            status: 200,
+            body: `{
+  "voices": [
+    {
+      "voice_id": "SPEAKER_ID",
+      "name": "Starhunter",
+      "category": "cloned",
+      "preview_url": "http://localhost:8320/v1/assets/speaker/SPEAKER_ID/ref"
+    }
+  ]
+}`,
+          },
+        },
+        {
+          method: "GET",
+          path: "/v2/voices",
+          title: "ElevenLabs v2 화자 검색",
+          description:
+            "최신 ElevenLabs List voices 형태에 맞춰 voices, has_more, total_count, next_page_token을 반환합니다.",
+          samples: [
+            { lang: "cURL", code: `curl "${base}/v2/voices?page_size=20" -H "xi-api-key: ${key}"` },
+            {
+              lang: "JavaScript",
+              code: `const voices = await fetch("${base}/v2/voices?page_size=20", {
+  headers: { "xi-api-key": "${key}" }
+}).then(r => r.json());`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+voices = httpx.get("${base}/v2/voices", headers={"xi-api-key": "${key}"}).json()`,
+            },
+          ],
+        },
+        {
+          method: "GET",
+          path: "/v1/models",
+          title: "ElevenLabs 스타일 모델 목록",
+          description:
+            "일반 ElevenLabs 클라이언트가 모델 목록을 조회할 때 깨지지 않도록 호환 model_id를 반환합니다.",
+          samples: [
+            { lang: "cURL", code: `curl ${base}/v1/models -H "xi-api-key: ${key}"` },
+            {
+              lang: "JavaScript",
+              code: `const models = await fetch("${base}/v1/models", {
+  headers: { "xi-api-key": "${key}" }
+}).then(r => r.json());`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+models = httpx.get("${base}/v1/models", headers={"xi-api-key": "${key}"}).json()`,
+            },
+          ],
+        },
+        {
+          method: "POST",
+          path: "/v1/text-to-speech/{voice_id}",
+          title: "ElevenLabs 스타일 TTS",
+          description:
+            "ElevenLabs Create speech와 같은 경로로 요청을 받고 JSON이 아니라 오디오 바이트를 직접 반환합니다.",
+          requestNotes:
+            "model_id, stability, similarity_boost 등은 호환 목적으로 수신하되 현재 OmniVoice 엔진에서는 일부만 반영합니다. voice_settings.speed는 params.speed로 매핑합니다.",
+          samples: [
+            {
+              lang: "cURL",
+              code: `curl -X POST "${base}/v1/text-to-speech/SPEAKER_ID?output_format=mp3_44100_128" \\
+  -H "xi-api-key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "text": "일레븐랩스 호환 API 테스트입니다.",
+    "model_id": "eleven_multilingual_v2",
+    "language_code": "ko",
+    "voice_settings": { "speed": 1.0 }
+  }' \\
+  -o out.mp3`,
+            },
+            {
+              lang: "JavaScript",
+              code: `const res = await fetch("${base}/v1/text-to-speech/" + voiceId, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "xi-api-key": "${key}" },
+  body: JSON.stringify({
+    text: "일레븐랩스 호환 API 테스트입니다.",
+    model_id: "eleven_multilingual_v2",
+    language_code: "ko"
+  }),
+});
+const audio = await res.blob();`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+r = httpx.post(
+    "${base}/v1/text-to-speech/SPEAKER_ID",
+    headers={"xi-api-key": "${key}"},
+    json={"text": "일레븐랩스 호환 API 테스트입니다.", "language_code": "ko"},
+    timeout=900,
+)
+r.raise_for_status()
+open("out.mp3", "wb").write(r.content)`,
+            },
+          ],
+        },
+        {
+          method: "POST",
+          path: "/v1/text-to-speech/{voice_id}/stream",
+          title: "ElevenLabs 스타일 스트림 경로",
+          description:
+            "경로 호환을 위해 제공합니다. 현재 엔진은 batch 합성 후 오디오 바이트를 반환하므로 true chunk streaming은 아닙니다.",
+          samples: [
+            {
+              lang: "cURL",
+              code: `curl -X POST "${base}/v1/text-to-speech/SPEAKER_ID/stream" \\
+  -H "xi-api-key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "text": "stream 경로 호환 테스트입니다.", "language_code": "ko" }' \\
+  -o out.mp3`,
+            },
+            {
+              lang: "JavaScript",
+              code: `const res = await fetch("${base}/v1/text-to-speech/" + voiceId + "/stream", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "xi-api-key": "${key}" },
+  body: JSON.stringify({ text: "stream 경로 호환 테스트입니다.", language_code: "ko" }),
+});`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+with httpx.stream(
+    "POST",
+    "${base}/v1/text-to-speech/SPEAKER_ID/stream",
+    headers={"xi-api-key": "${key}"},
+    json={"text": "stream 경로 호환 테스트입니다.", "language_code": "ko"},
+    timeout=900,
+) as r:
+    r.raise_for_status()
+    open("out.mp3", "wb").write(r.read())`,
+            },
+          ],
+        },
+        {
+          method: "POST",
+          path: "/v1/text-to-dialogue",
+          title: "ElevenLabs 스타일 Dialogue",
+          description:
+            "inputs[].voice_id/text 배열을 받아 다중 화자 오디오를 생성합니다. /stream 경로도 같은 방식으로 지원합니다.",
+          samples: [
+            {
+              lang: "cURL",
+              code: `curl -X POST "${base}/v1/text-to-dialogue?output_format=mp3_44100_128" \\
+  -H "xi-api-key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model_id": "eleven_v3",
+    "language_code": "ko",
+    "inputs": [
+      { "voice_id": "HOST_SPEAKER_ID",  "text": "안녕하세요. 저는 진행자입니다." },
+      { "voice_id": "GUEST_SPEAKER_ID", "text": "반갑습니다. 저는 게스트입니다." }
+    ]
+  }' \\
+  -o dialogue.mp3`,
+            },
+            {
+              lang: "JavaScript",
+              code: `const res = await fetch("${base}/v1/text-to-dialogue", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "xi-api-key": "${key}" },
+  body: JSON.stringify({
+    model_id: "eleven_v3",
+    language_code: "ko",
+    inputs: [
+      { voice_id: hostId, text: "안녕하세요. 저는 진행자입니다." },
+      { voice_id: guestId, text: "반갑습니다. 저는 게스트입니다." }
+    ]
+  }),
+});`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+r = httpx.post(
+    "${base}/v1/text-to-dialogue",
+    headers={"xi-api-key": "${key}"},
+    json={
+        "model_id": "eleven_v3",
+        "language_code": "ko",
+        "inputs": [
+            {"voice_id": "HOST_SPEAKER_ID", "text": "안녕하세요. 저는 진행자입니다."},
+            {"voice_id": "GUEST_SPEAKER_ID", "text": "반갑습니다. 저는 게스트입니다."},
+        ],
+    },
+    timeout=900,
+)
+open("dialogue.mp3", "wb").write(r.content)`,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      title: "OpenAI TTS 호환",
+      subtitle: "OpenAI Audio Speech 스타일",
+      endpoints: [
+        {
+          method: "POST",
+          path: "/v1/audio/speech",
+          title: "OpenAI 스타일 음성 생성",
+          description:
+            "OpenAI Audio Speech와 같은 경로/필드로 요청을 받고 오디오 바이트를 직접 반환합니다. voice는 speaker id 또는 이름으로 매핑됩니다.",
+          requestNotes:
+            "response_format은 현재 mp3, wav를 지원합니다. input에 <speak><voice name=\"...\">...</voice></speak>를 넣으면 SSML-lite 다중 화자로 처리합니다.",
+          samples: [
+            {
+              lang: "cURL",
+              code: `curl -X POST ${base}/v1/audio/speech \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "tts-1",
+    "voice": "Starhunter",
+    "input": "OpenAI 호환 음성 생성 테스트입니다.",
+    "response_format": "mp3",
+    "speed": 1.0
+  }' \\
+  -o speech.mp3`,
+            },
+            {
+              lang: "JavaScript",
+              code: `const res = await fetch("${base}/v1/audio/speech", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: "Bearer ${key}" },
+  body: JSON.stringify({
+    model: "tts-1",
+    voice: "Starhunter",
+    input: "OpenAI 호환 음성 생성 테스트입니다.",
+    response_format: "mp3",
+    speed: 1.0
+  }),
+});
+const audio = await res.blob();`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+r = httpx.post(
+    "${base}/v1/audio/speech",
+    headers={"Authorization": "Bearer ${key}"},
+    json={
+        "model": "tts-1",
+        "voice": "Starhunter",
+        "input": "OpenAI 호환 음성 생성 테스트입니다.",
+        "response_format": "mp3",
+    },
+    timeout=900,
+)
+open("speech.mp3", "wb").write(r.content)`,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      title: "Gemini TTS 호환",
+      subtitle: "Gemini generateContent 스타일",
+      endpoints: [
+        {
+          method: "POST",
+          path: "/v1beta/models/{model}:generateContent",
+          title: "Gemini 스타일 다중 화자 TTS",
+          description:
+            "Gemini TTS의 generateContent 요청 형태를 받아 speakerVoiceConfigs와 프롬프트 라벨을 내부 podcast segments로 변환합니다.",
+          requestNotes:
+            "응답은 Gemini처럼 candidates[0].content.parts[0].inlineData.data에 base64 WAV를 넣어 반환합니다.",
+          samples: [
+            {
+              lang: "cURL",
+              code: `curl -X POST "${base}/v1beta/models/gemini-2.5-flash-preview-tts:generateContent" \\
+  -H "x-goog-api-key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "contents": "Joe: 안녕하세요.\\nJane: 네, 반갑습니다.",
+    "config": {
+      "responseModalities": ["AUDIO"],
+      "speechConfig": {
+        "multiSpeakerVoiceConfig": {
+          "speakerVoiceConfigs": [
+            { "speaker": "Joe",  "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": "Starhunter" } } },
+            { "speaker": "Jane", "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": "OmniVoice Korean Demo KR" } } }
+          ]
+        }
+      }
+    }
+  }'`,
+            },
+            {
+              lang: "JavaScript",
+              code: `const res = await fetch("${base}/v1beta/models/gemini-2.5-flash-preview-tts:generateContent", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "x-goog-api-key": "${key}" },
+  body: JSON.stringify({
+    contents: "Joe: 안녕하세요.\\nJane: 네, 반갑습니다.",
+    config: {
+      responseModalities: ["AUDIO"],
+      speechConfig: {
+        multiSpeakerVoiceConfig: {
+          speakerVoiceConfigs: [
+            { speaker: "Joe", voiceConfig: { prebuiltVoiceConfig: { voiceName: "Starhunter" } } },
+            { speaker: "Jane", voiceConfig: { prebuiltVoiceConfig: { voiceName: "OmniVoice Korean Demo KR" } } },
+          ],
+        },
+      },
+    },
+  }),
+});
+const payload = await res.json();`,
+            },
+            {
+              lang: "Python",
+              code: `import base64, httpx
+payload = httpx.post(
+    "${base}/v1beta/models/gemini-2.5-flash-preview-tts:generateContent",
+    headers={"x-goog-api-key": "${key}"},
+    json={
+        "contents": "Joe: 안녕하세요.\\nJane: 네, 반갑습니다.",
+        "config": {"responseModalities": ["AUDIO"]},
+    },
+    timeout=900,
+).json()
+raw = base64.b64decode(payload["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
+open("gemini.wav", "wb").write(raw)`,
+            },
+          ],
+        },
+      ],
+    },
+    {
       title: "화자",
       subtitle: "참조 오디오 업로드 · CRUD",
       endpoints: [

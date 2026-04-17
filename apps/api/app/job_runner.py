@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import wave
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -204,15 +205,23 @@ def _podcast_text(req: PodcastJobRequest) -> str:
     return "\n\n".join(lines)
 
 
-def _run_podcast_job(settings: Settings, session, job: Job, gen: Generation | None) -> None:
-    if gen is None:
-        raise RuntimeError("generation_missing")
+ProgressCallback = Callable[[int, int, str], None]
 
-    req = PodcastJobRequest.model_validate(job.request_json)
+
+def synthesize_podcast_request(
+    *,
+    settings: Settings,
+    session,
+    gen: Generation,
+    req: PodcastJobRequest,
+    progress: ProgressCallback | None = None,
+) -> tuple[Path, float, float]:
+    """Synthesize a PodcastJobRequest immediately and update the Generation."""
     total = len(req.segments)
-    _set_job_progress(session, job, current=0, total=total, message="starting")
+    if progress:
+        progress(0, total, "starting")
 
-    with tempfile.TemporaryDirectory(prefix=f"omnivoice_podcast_{job.id}_") as tmpd:
+    with tempfile.TemporaryDirectory(prefix=f"omnivoice_podcast_{gen.id}_") as tmpd:
         tmp_root = Path(tmpd)
         wav_parts: list[Path] = []
         total_duration = 0.0
@@ -227,13 +236,8 @@ def _run_podcast_job(settings: Settings, session, job: Job, gen: Generation | No
                 preprocess_prompt=req.params.preprocess_prompt,
             )
             label = seg.label or speaker.name
-            _set_job_progress(
-                session,
-                job,
-                current=idx,
-                total=total,
-                message=f"{label} segment {idx + 1}/{total}",
-            )
+            if progress:
+                progress(idx, total, f"{label} segment {idx + 1}/{total}")
 
             seg_wav = tmp_root / f"segment_{idx:04d}.wav"
             dur = synthesize(
@@ -257,7 +261,8 @@ def _run_podcast_job(settings: Settings, session, job: Job, gen: Generation | No
                 wav_parts.append(pause_wav)
 
         final_wav = tmp_root / "podcast.wav"
-        _set_job_progress(session, job, current=total, total=total, message="concatenating")
+        if progress:
+            progress(total, total, "concatenating")
         _concat_wavs(wav_parts, final_wav)
 
         out_path = audio_path_for(settings, gen.id, req.format)
@@ -269,6 +274,27 @@ def _run_podcast_job(settings: Settings, session, job: Job, gen: Generation | No
     gen.rtf = (elapsed / total_duration) if total_duration > 0 else None
     gen.status = "succeeded"
     gen.finished_at = _now()
+    session.commit()
+    return out_path, total_duration, elapsed
+
+
+def _run_podcast_job(settings: Settings, session, job: Job, gen: Generation | None) -> None:
+    if gen is None:
+        raise RuntimeError("generation_missing")
+
+    req = PodcastJobRequest.model_validate(job.request_json)
+
+    def progress(current: int, total: int, message: str) -> None:
+        _set_job_progress(session, job, current=current, total=total, message=message)
+
+    synthesize_podcast_request(
+        settings=settings,
+        session=session,
+        gen=gen,
+        req=req,
+        progress=progress,
+    )
+    total = len(req.segments)
     job.status = "succeeded"
     job.progress_current = total
     job.progress_total = total

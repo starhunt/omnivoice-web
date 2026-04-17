@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 # ---------- TTS ----------
 
 AudioFormat = Literal["wav", "mp3"]
+TtsEngineId = Literal["auto", "omnivoice", "qwen3-tts"]
 
 
 class TTSParams(BaseModel):
@@ -47,6 +48,7 @@ class TTSRequest(BaseModel):
     params: TTSParams = Field(default_factory=TTSParams)
     format: AudioFormat = "wav"
     project_id: str | None = None
+    engine: TtsEngineId = "auto"
 
 
 class GenerationOut(BaseModel):
@@ -149,6 +151,35 @@ class PodcastJobRequest(BaseModel):
     format: AudioFormat = "wav"
     pause_ms: int = Field(default=350, ge=0, le=5_000)
     project_id: str | None = None
+    engine: TtsEngineId = "auto"
+
+
+class EngineCapability(BaseModel):
+    supports_voice_clone: bool
+    supports_voice_design: bool
+    supports_custom_voices: bool
+    supports_native_dialogue: bool
+    supports_streaming: bool
+    max_speakers: int
+    languages: list[str]
+
+
+class EngineInfo(BaseModel):
+    id: str
+    name: str
+    available: bool
+    mode: str
+    reason: str | None = None
+    python: str | None = None
+    path: str | None = None
+    model: str | None = None
+    capabilities: EngineCapability
+
+
+class EnginesResponse(BaseModel):
+    default_engine: str
+    selected_engine: str | None
+    engines: list[EngineInfo]
 
 
 # ---------- Speakers ----------

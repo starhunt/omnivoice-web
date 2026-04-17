@@ -5,7 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import verify_api_key
-from ..schemas import LanguageEntry, VoiceAttributeOptions
+from ..config import Settings, get_settings
+from ..engine.registry import engines_response
+from ..schemas import EnginesResponse, LanguageEntry, VoiceAttributeOptions
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
@@ -84,3 +86,8 @@ def voice_attributes() -> VoiceAttributeOptions:
 @router.get("/nonverbal-tags", response_model=list[str])
 def list_nonverbal_tags() -> list[str]:
     return _NONVERBAL_TAGS
+
+
+@router.get("/engines", response_model=EnginesResponse)
+def list_tts_engines(settings: Settings = Depends(get_settings)) -> EnginesResponse:
+    return engines_response(settings)

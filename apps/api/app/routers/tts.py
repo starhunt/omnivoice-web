@@ -21,6 +21,8 @@ from ..engine.omnivoice_adapter import (
     synthesize,
     transcribe_ref_audio,
 )
+from ..engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
+from ..engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from ..models import Generation, Speaker
 from ..schemas import TTSRequest, TTSResponse
 from ..storage import audio_path_for, relpath
@@ -153,12 +155,25 @@ def post_tts(
         if not speaker or speaker.deleted_at is not None:
             raise HTTPException(status_code=404, detail="speaker_not_found")
 
-    ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
-        settings=settings,
-        session=session,
-        speaker=speaker,
-        preprocess_prompt=req.params.preprocess_prompt,
+    speaker_prompt_only = bool(speaker and speaker.prompt_blob_path and not speaker.source_audio_path)
+    engine_id = resolve_engine(
+        settings,
+        req.engine,
+        speaker_has_omnivoice_prompt_only=speaker_prompt_only,
     )
+    ref_audio_path: Path | None = None
+    voice_prompt_path: Path | None = None
+    if engine_id == ENGINE_QWEN3_TTS:
+        if speaker and not speaker.source_audio_path:
+            raise HTTPException(status_code=400, detail="qwen3_tts_requires_speaker_ref_audio")
+        ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker and speaker.source_audio_path else None
+    else:
+        ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
+            settings=settings,
+            session=session,
+            speaker=speaker,
+            preprocess_prompt=req.params.preprocess_prompt,
+        )
 
     instruct = req.instruct or (
         build_instruct_from_design(req.design.model_dump(exclude_none=True))
@@ -177,6 +192,7 @@ def post_tts(
         audio_format=req.format,
         status="running",
     )
+    gen.params_json = {**gen.params_json, "engine": engine_id, "requested_engine": req.engine}
     session.add(gen)
     session.commit()
     session.refresh(gen)
@@ -184,17 +200,29 @@ def post_tts(
     out_path: Path = audio_path_for(settings, gen.id, req.format)
     started = time.perf_counter()
     try:
-        duration_sec = synthesize(
-            settings=settings,
-            text=req.text,
-            language=req.language,
-            instruct=instruct,
-            ref_audio_path=ref_audio_path,
-            ref_transcript=speaker.ref_transcript if speaker else None,
-            voice_prompt_path=voice_prompt_path,
-            params=req.params,
-            out_path=out_path,
-        )
+        if engine_id == ENGINE_QWEN3_TTS:
+            duration_sec = synthesize_qwen3_tts(
+                settings=settings,
+                text=req.text,
+                language=req.language,
+                instruct=instruct,
+                ref_audio_path=ref_audio_path,
+                ref_transcript=speaker.ref_transcript if speaker else None,
+                params=req.params,
+                out_path=out_path,
+            )
+        else:
+            duration_sec = synthesize(
+                settings=settings,
+                text=req.text,
+                language=req.language,
+                instruct=instruct,
+                ref_audio_path=ref_audio_path,
+                ref_transcript=speaker.ref_transcript if speaker else None,
+                voice_prompt_path=voice_prompt_path,
+                params=req.params,
+                out_path=out_path,
+            )
     except EngineError as exc:
         gen.status = "failed"
         gen.error = str(exc)

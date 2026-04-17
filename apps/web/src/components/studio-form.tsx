@@ -5,6 +5,7 @@ import { Loader2, Plus, Play, RotateCcw, Trash2 } from "lucide-react";
 import { api, audioUrlFor } from "@/lib/api";
 import {
   DEFAULT_TTS_PARAMS,
+  type EnginesResponse,
   type Job,
   type LanguageEntry,
   type PodcastSegment,
@@ -17,6 +18,7 @@ import {
 
 type Mode = "tts" | "design" | "auto";
 type StudioKind = "single" | "podcast";
+type EngineChoice = "auto" | "omnivoice" | "qwen3-tts";
 
 const EMPTY_SEGMENT = { speaker_id: "", label: "", text: "" };
 const SAMPLE_PODCAST_SCRIPT = [
@@ -93,6 +95,7 @@ export function StudioForm() {
   const [language, setLanguage] = useState<string>("ko");
   const [speakerId, setSpeakerId] = useState<string | null>(null);
   const [format, setFormat] = useState<"wav" | "mp3">("wav");
+  const [engine, setEngine] = useState<EngineChoice>("auto");
   const [params, setParams] = useState<TTSParams>(DEFAULT_TTS_PARAMS);
   const [design, setDesign] = useState<VoiceDesign>({});
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -111,6 +114,7 @@ export function StudioForm() {
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [voiceAttrs, setVoiceAttrs] = useState<VoiceAttributeOptions | null>(null);
   const [nonverbal, setNonverbal] = useState<string[]>([]);
+  const [engines, setEngines] = useState<EnginesResponse | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<TTSResponse | null>(null);
@@ -143,12 +147,14 @@ export function StudioForm() {
       api.listSpeakers(),
       api.voiceAttributes(),
       api.nonverbalTags(),
+      api.engines(),
     ])
-      .then(([l, s, v, n]) => {
+      .then(([l, s, v, n, e]) => {
         setLanguages(l);
         setSpeakers(s);
         setVoiceAttrs(v);
         setNonverbal(n);
+        setEngines(e);
         if (!speakerId && s[0]) setSpeakerId(s[0].id);
         if (s[0]) {
           const defaults = defaultPodcastSegments(s);
@@ -199,6 +205,7 @@ export function StudioForm() {
     design: mode === "design" ? design : null,
     params,
     format,
+    engine,
   });
 
   const handleSubmitSingle = async () => {
@@ -253,6 +260,7 @@ export function StudioForm() {
         params,
         format,
         pause_ms: pauseMs,
+        engine,
       });
       const next = await api.getJob(created.job_id);
       setJob(next);
@@ -346,6 +354,27 @@ export function StudioForm() {
                 {k === "single" ? "단일 음성" : "팟캐스트"}
               </button>
             ))}
+          </div>
+
+          <div>
+            <label className="label">엔진</label>
+            <select
+              className="input mt-1"
+              value={engine}
+              onChange={(e) => setEngine(e.target.value as EngineChoice)}
+            >
+              <option value="auto">자동 ({engines?.selected_engine ?? "auto"})</option>
+              {(engines?.engines ?? []).map((item) => (
+                <option key={item.id} value={item.id} disabled={!item.available}>
+                  {item.name} {item.available ? "" : `- ${item.reason ?? "사용 불가"}`}
+                </option>
+              ))}
+            </select>
+            {engines && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                사용 가능: {engines.engines.filter((item) => item.available).map((item) => item.name).join(", ") || "없음"}
+              </p>
+            )}
           </div>
 
           {kind === "single" && (

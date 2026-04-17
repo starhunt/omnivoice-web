@@ -51,7 +51,10 @@ def create_tts_job(req: TTSRequest, session: Session = Depends(get_session)) -> 
         language=req.language,
         speaker_id=req.speaker_id,
         instruct=_resolve_tts_instruct(req),
-        params_json=req.params.model_dump(exclude_none=False),
+        params_json={
+            **req.params.model_dump(exclude_none=False),
+            "engine": req.engine,
+        },
         audio_format=req.format,
         status="pending",
     )
@@ -96,6 +99,7 @@ def create_podcast_job(
         params_json={
             "params": req.params.model_dump(exclude_none=False),
             "pause_ms": req.pause_ms,
+            "engine": req.engine,
             "segments": [seg.model_dump(mode="json") for seg in req.segments],
         },
         audio_format=req.format,

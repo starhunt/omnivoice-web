@@ -1,6 +1,7 @@
 import type {
   Generation,
   Health,
+  EnginesResponse,
   Job,
   JobCreateResponse,
   LanguageEntry,
@@ -54,6 +55,7 @@ export const api = {
   languages: () => request<LanguageEntry[]>("/languages"),
   voiceAttributes: () => request<VoiceAttributeOptions>("/voice-attributes"),
   nonverbalTags: () => request<string[]>("/nonverbal-tags"),
+  engines: () => request<EnginesResponse>("/engines"),
 
   listSpeakers: () => request<Speaker[]>("/speakers"),
   getSpeaker: (id: string) => request<Speaker>(`/speakers/${id}`),

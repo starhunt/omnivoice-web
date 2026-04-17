@@ -318,6 +318,38 @@ tags = httpx.get("${base}/v1/nonverbal-tags", headers={"Authorization": "Bearer 
             body: `["[laughter]", "[chuckle]", "[sigh]", "[breath]", "[cough]", "..."]`,
           },
         },
+        {
+          method: "GET",
+          path: "/v1/engines",
+          title: "TTS 엔진 감지",
+          description:
+            "OmniVoice/Qwen3-TTS 설치 상태, 기본 엔진, capability를 반환합니다. Studio의 엔진 선택 UI도 이 응답을 사용합니다.",
+          samples: [
+            { lang: "cURL", code: `curl ${base}/v1/engines ${authH}` },
+            {
+              lang: "JavaScript",
+              code: `const engines = await fetch("${base}/v1/engines", {
+  headers: { Authorization: "Bearer ${key}" }
+}).then(r => r.json());`,
+            },
+            {
+              lang: "Python",
+              code: `import httpx
+engines = httpx.get("${base}/v1/engines", headers={"Authorization": "Bearer ${key}"}).json()`,
+            },
+          ],
+          response: {
+            status: 200,
+            body: `{
+  "default_engine": "auto",
+  "selected_engine": "omnivoice",
+  "engines": [
+    { "id": "omnivoice", "available": true,  "mode": "live" },
+    { "id": "qwen3-tts", "available": false, "reason": "QWEN3_TTS_PYTHON missing" }
+  ]
+}`,
+          },
+        },
       ],
     },
     {
@@ -331,7 +363,7 @@ tags = httpx.get("${base}/v1/nonverbal-tags", headers={"Authorization": "Bearer 
           description:
             "텍스트를 합성하여 generation_id와 audio_url을 반환합니다. 화자/보이스디자인/오토 모드 모두 이 엔드포인트로 처리.",
           requestNotes:
-            "speaker_id 지정 → 화자 복제 / design 지정 → 보이스 디자인 / 둘 다 null → 오토 보이스",
+            "speaker_id 지정 → 화자 복제 / design 지정 → 보이스 디자인 / 둘 다 null → 오토 보이스. engine은 auto, omnivoice, qwen3-tts 중 선택.",
           samples: [
             {
               lang: "cURL",

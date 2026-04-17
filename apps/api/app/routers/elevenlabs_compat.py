@@ -21,6 +21,8 @@ from ..auth import verify_api_key
 from ..config import Settings, get_settings
 from ..db import get_session
 from ..engine.omnivoice_adapter import EngineError, synthesize
+from ..engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
+from ..engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from ..job_runner import synthesize_podcast_request
 from ..models import Generation, Speaker
 from ..schemas import PodcastJobRequest, PodcastSegment, TTSParams
@@ -154,12 +156,25 @@ def _synthesize_audio_file(
 
     fmt = _audio_format(output_format)
     params = _voice_settings_to_params(req.voice_settings)
-    ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
-        settings=settings,
-        session=session,
-        speaker=speaker,
-        preprocess_prompt=params.preprocess_prompt,
+    speaker_prompt_only = bool(speaker.prompt_blob_path and not speaker.source_audio_path)
+    engine_id = resolve_engine(
+        settings,
+        "auto",
+        speaker_has_omnivoice_prompt_only=speaker_prompt_only,
     )
+    ref_audio_path: Path | None = None
+    voice_prompt_path: Path | None = None
+    if engine_id == ENGINE_QWEN3_TTS:
+        if not speaker.source_audio_path:
+            raise HTTPException(status_code=400, detail="qwen3_tts_requires_speaker_ref_audio")
+        ref_audio_path = settings.data_dir / speaker.source_audio_path
+    else:
+        ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
+            settings=settings,
+            session=session,
+            speaker=speaker,
+            preprocess_prompt=params.preprocess_prompt,
+        )
 
     gen = Generation(
         mode="tts",
@@ -170,6 +185,7 @@ def _synthesize_audio_file(
             **params.model_dump(exclude_none=False),
             "elevenlabs_model_id": req.model_id,
             "elevenlabs_output_format": output_format,
+            "engine": engine_id,
         },
         audio_format=fmt,
         status="running",
@@ -181,17 +197,29 @@ def _synthesize_audio_file(
     out_path = audio_path_for(settings, gen.id, fmt)
     started = time.perf_counter()
     try:
-        duration_sec = synthesize(
-            settings=settings,
-            text=req.text,
-            language=req.language_code,
-            instruct=None,
-            ref_audio_path=ref_audio_path,
-            ref_transcript=speaker.ref_transcript,
-            voice_prompt_path=voice_prompt_path,
-            params=params,
-            out_path=out_path,
-        )
+        if engine_id == ENGINE_QWEN3_TTS:
+            duration_sec = synthesize_qwen3_tts(
+                settings=settings,
+                text=req.text,
+                language=req.language_code,
+                instruct=None,
+                ref_audio_path=ref_audio_path,
+                ref_transcript=speaker.ref_transcript,
+                params=params,
+                out_path=out_path,
+            )
+        else:
+            duration_sec = synthesize(
+                settings=settings,
+                text=req.text,
+                language=req.language_code,
+                instruct=None,
+                ref_audio_path=ref_audio_path,
+                ref_transcript=speaker.ref_transcript,
+                voice_prompt_path=voice_prompt_path,
+                params=params,
+                out_path=out_path,
+            )
     except EngineError as exc:
         gen.status = "failed"
         gen.error = str(exc)

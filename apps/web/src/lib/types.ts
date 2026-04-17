@@ -47,6 +47,7 @@ export type TTSRequest = {
   params: TTSParams;
   format: "wav" | "mp3";
   project_id?: string | null;
+  engine?: "auto" | "omnivoice" | "qwen3-tts";
 };
 
 export type TTSResponse = {
@@ -119,6 +120,33 @@ export type PodcastJobRequest = {
   format: "wav" | "mp3";
   pause_ms: number;
   project_id?: string | null;
+  engine?: "auto" | "omnivoice" | "qwen3-tts";
+};
+
+export type EngineInfo = {
+  id: string;
+  name: string;
+  available: boolean;
+  mode: string;
+  reason: string | null;
+  python: string | null;
+  path: string | null;
+  model: string | null;
+  capabilities: {
+    supports_voice_clone: boolean;
+    supports_voice_design: boolean;
+    supports_custom_voices: boolean;
+    supports_native_dialogue: boolean;
+    supports_streaming: boolean;
+    max_speakers: number;
+    languages: string[];
+  };
+};
+
+export type EnginesResponse = {
+  default_engine: string;
+  selected_engine: string | null;
+  engines: EngineInfo[];
 };
 
 export type LanguageEntry = {

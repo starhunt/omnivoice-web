@@ -22,6 +22,8 @@ from typing import Any
 from .config import Settings, get_settings
 from .db import SessionLocal
 from .engine.omnivoice_adapter import EngineError, build_instruct_from_design, synthesize
+from .engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
+from .engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from .models import Generation, Job, Speaker
 from .routers.tts import ensure_speaker_voice_prompt
 from .schemas import PodcastJobRequest, TTSParams, TTSRequest
@@ -109,12 +111,25 @@ def _run_tts_job(settings: Settings, session, job: Job, gen: Generation | None) 
 
     req = TTSRequest.model_validate(job.request_json)
     speaker = _resolve_speaker(session, req.speaker_id)
-    ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
-        settings=settings,
-        session=session,
-        speaker=speaker,
-        preprocess_prompt=req.params.preprocess_prompt,
+    speaker_prompt_only = bool(speaker and speaker.prompt_blob_path and not speaker.source_audio_path)
+    engine_id = resolve_engine(
+        settings,
+        req.engine,
+        speaker_has_omnivoice_prompt_only=speaker_prompt_only,
     )
+    ref_audio_path: Path | None = None
+    voice_prompt_path: Path | None = None
+    if engine_id == ENGINE_QWEN3_TTS:
+        if speaker and not speaker.source_audio_path:
+            raise RuntimeError("qwen3_tts_requires_speaker_ref_audio")
+        ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker and speaker.source_audio_path else None
+    else:
+        ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
+            settings=settings,
+            session=session,
+            speaker=speaker,
+            preprocess_prompt=req.params.preprocess_prompt,
+        )
     instruct = req.instruct or (
         build_instruct_from_design(req.design.model_dump(exclude_none=True))
         if req.design
@@ -124,17 +139,29 @@ def _run_tts_job(settings: Settings, session, job: Job, gen: Generation | None) 
     _set_job_progress(session, job, current=0, total=1, message="synthesizing")
     out_path = audio_path_for(settings, gen.id, req.format)
     started = time.perf_counter()
-    duration_sec = synthesize(
-        settings=settings,
-        text=req.text,
-        language=req.language,
-        instruct=instruct,
-        ref_audio_path=ref_audio_path,
-        ref_transcript=speaker.ref_transcript if speaker else None,
-        voice_prompt_path=voice_prompt_path,
-        params=req.params,
-        out_path=out_path,
-    )
+    if engine_id == ENGINE_QWEN3_TTS:
+        duration_sec = synthesize_qwen3_tts(
+            settings=settings,
+            text=req.text,
+            language=req.language,
+            instruct=instruct,
+            ref_audio_path=ref_audio_path,
+            ref_transcript=speaker.ref_transcript if speaker else None,
+            params=req.params,
+            out_path=out_path,
+        )
+    else:
+        duration_sec = synthesize(
+            settings=settings,
+            text=req.text,
+            language=req.language,
+            instruct=instruct,
+            ref_audio_path=ref_audio_path,
+            ref_transcript=speaker.ref_transcript if speaker else None,
+            voice_prompt_path=voice_prompt_path,
+            params=req.params,
+            out_path=out_path,
+        )
     elapsed = time.perf_counter() - started
 
     gen.audio_path = relpath(settings, out_path)
@@ -229,28 +256,53 @@ def synthesize_podcast_request(
 
         for idx, seg in enumerate(req.segments):
             speaker = _resolve_speaker(session, seg.speaker_id)
-            ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
-                settings=settings,
-                session=session,
-                speaker=speaker,
-                preprocess_prompt=req.params.preprocess_prompt,
+            speaker_prompt_only = bool(speaker and speaker.prompt_blob_path and not speaker.source_audio_path)
+            engine_id = resolve_engine(
+                settings,
+                req.engine,
+                speaker_has_omnivoice_prompt_only=speaker_prompt_only,
             )
+            ref_audio_path: Path | None = None
+            voice_prompt_path: Path | None = None
+            if engine_id == ENGINE_QWEN3_TTS:
+                if speaker and not speaker.source_audio_path:
+                    raise RuntimeError("qwen3_tts_requires_speaker_ref_audio")
+                ref_audio_path = settings.data_dir / speaker.source_audio_path if speaker.source_audio_path else None
+            else:
+                ref_audio_path, voice_prompt_path = ensure_speaker_voice_prompt(
+                    settings=settings,
+                    session=session,
+                    speaker=speaker,
+                    preprocess_prompt=req.params.preprocess_prompt,
+                )
             label = seg.label or speaker.name
             if progress:
                 progress(idx, total, f"{label} segment {idx + 1}/{total}")
 
             seg_wav = tmp_root / f"segment_{idx:04d}.wav"
-            dur = synthesize(
-                settings=settings,
-                text=seg.text,
-                language=seg.language or req.language,
-                instruct=None,
-                ref_audio_path=ref_audio_path,
-                ref_transcript=speaker.ref_transcript if speaker else None,
-                voice_prompt_path=voice_prompt_path,
-                params=req.params,
-                out_path=seg_wav,
-            )
+            if engine_id == ENGINE_QWEN3_TTS:
+                dur = synthesize_qwen3_tts(
+                    settings=settings,
+                    text=seg.text,
+                    language=seg.language or req.language,
+                    instruct=None,
+                    ref_audio_path=ref_audio_path,
+                    ref_transcript=speaker.ref_transcript if speaker else None,
+                    params=req.params,
+                    out_path=seg_wav,
+                )
+            else:
+                dur = synthesize(
+                    settings=settings,
+                    text=seg.text,
+                    language=seg.language or req.language,
+                    instruct=None,
+                    ref_audio_path=ref_audio_path,
+                    ref_transcript=speaker.ref_transcript if speaker else None,
+                    voice_prompt_path=voice_prompt_path,
+                    params=req.params,
+                    out_path=seg_wav,
+                )
             total_duration += dur
             wav_parts.append(seg_wav)
 

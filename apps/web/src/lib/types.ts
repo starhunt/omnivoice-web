@@ -41,6 +41,7 @@ export type VoiceDesign = {
 export type TTSRequest = {
   text: string;
   speaker_id?: string | null;
+  voice_id?: string | null;
   language?: string | null;
   instruct?: string | null;
   design?: VoiceDesign | null;
@@ -106,7 +107,8 @@ export type JobCreateResponse = {
 };
 
 export type PodcastSegment = {
-  speaker_id: string;
+  speaker_id?: string | null;
+  voice_id?: string | null;
   text: string;
   label?: string | null;
   language?: string | null;
@@ -141,6 +143,11 @@ export type EngineInfo = {
     max_speakers: number;
     languages: string[];
   };
+  voices: {
+    id: string;
+    name: string;
+    source: string;
+  }[];
 };
 
 export type EnginesResponse = {

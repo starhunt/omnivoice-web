@@ -42,6 +42,7 @@ class VoiceDesign(BaseModel):
 class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10_000)
     speaker_id: str | None = None
+    voice_id: str | None = Field(default=None, max_length=100)
     language: str | None = None
     instruct: str | None = None
     design: VoiceDesign | None = None
@@ -137,7 +138,8 @@ class JobCreateResponse(BaseModel):
 
 
 class PodcastSegment(BaseModel):
-    speaker_id: str = Field(min_length=1)
+    speaker_id: str | None = None
+    voice_id: str | None = Field(default=None, max_length=100)
     text: str = Field(min_length=1, max_length=4_000)
     label: str | None = Field(default=None, max_length=60)
     language: str | None = None
@@ -164,6 +166,12 @@ class EngineCapability(BaseModel):
     languages: list[str]
 
 
+class EngineVoice(BaseModel):
+    id: str
+    name: str
+    source: str = "builtin"
+
+
 class EngineInfo(BaseModel):
     id: str
     name: str
@@ -174,6 +182,7 @@ class EngineInfo(BaseModel):
     path: str | None = None
     model: str | None = None
     capabilities: EngineCapability
+    voices: list[EngineVoice] = Field(default_factory=list)
 
 
 class EnginesResponse(BaseModel):

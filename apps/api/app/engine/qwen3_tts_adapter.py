@@ -88,6 +88,27 @@ def qwen3_tts_status(settings: Settings) -> dict[str, Any]:
     }
 
 
+def list_voices(settings: Settings) -> list[dict[str, str]]:
+    default = (settings.qwen3_tts_default_speaker or "sohee").strip().lower()
+    if not _base_url(settings):
+        return [{"id": default, "name": default, "source": "configured"}]
+    try:
+        payload = json.loads(_api_get(settings, "/v1/audio/voices", timeout=PROBE_TIMEOUT_SEC))
+    except Exception:  # noqa: BLE001 - voice discovery is optional metadata.
+        return [{"id": default, "name": default, "source": "configured"}]
+
+    voices: list[dict[str, str]] = []
+    for source, values in (("builtin", payload.get("voices")), ("uploaded", payload.get("uploaded_voices"))):
+        if not isinstance(values, list):
+            continue
+        for raw in values:
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            voice_id = raw.strip()
+            voices.append({"id": voice_id, "name": voice_id, "source": source})
+    return voices or [{"id": default, "name": default, "source": "configured"}]
+
+
 def requires_ref_audio(settings: Settings) -> bool:
     """The direct CLI can clone a supplied speaker; the OpenAI Speech API uses named voices."""
     return not bool(_base_url(settings))
@@ -177,6 +198,7 @@ def _synthesize_openai_compatible(
     *,
     settings: Settings,
     text: str,
+    voice_id: str | None,
     params: TTSParams,
     out_path: Path,
 ) -> float:
@@ -191,7 +213,7 @@ def _synthesize_openai_compatible(
     payload: dict[str, Any] = {
         "model": settings.qwen3_tts_model,
         "input": text,
-        "voice": settings.qwen3_tts_default_speaker.strip().lower(),
+        "voice": (voice_id or settings.qwen3_tts_default_speaker).strip().lower(),
         "response_format": response_format,
     }
     if params.speed:
@@ -223,6 +245,7 @@ def synthesize(
     ref_transcript: str | None,
     params: TTSParams,
     out_path: Path,
+    voice_id: str | None = None,
 ) -> float:
     status = qwen3_tts_status(settings)
     if status["mode"] != "live":
@@ -231,6 +254,7 @@ def synthesize(
         return _synthesize_openai_compatible(
             settings=settings,
             text=text,
+            voice_id=voice_id,
             params=params,
             out_path=out_path,
         )
@@ -243,7 +267,7 @@ def synthesize(
         "model": _model_for_mode(settings, mode),
         "text": text,
         "language": _language(language),
-        "speaker": settings.qwen3_tts_default_speaker,
+        "speaker": voice_id or settings.qwen3_tts_default_speaker,
         "instruct": instruct,
         "ref_audio_path": str(ref_audio_path) if ref_audio_path else None,
         "ref_text": ref_transcript,

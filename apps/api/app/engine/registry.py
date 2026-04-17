@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from ..config import Settings
-from ..schemas import EngineCapability, EngineInfo, EnginesResponse
+from ..schemas import EngineCapability, EngineInfo, EnginesResponse, EngineVoice
 from .omnivoice_adapter import SCRIPT_PATH as OMNIVOICE_SCRIPT_PATH
 from .omnivoice_adapter import engine_status as omnivoice_status
 from .qwen3_tts_adapter import SCRIPT_PATH as QWEN3_TTS_SCRIPT_PATH
+from .qwen3_tts_adapter import list_voices as qwen3_tts_voices
 from .qwen3_tts_adapter import qwen3_tts_status
 
 ENGINE_AUTO = "auto"
@@ -45,6 +46,7 @@ def _omnivoice_info(settings: Settings) -> EngineInfo:
             max_speakers=1,
             languages=["auto", "ko", "en", "zh", "ja", "es", "fr", "de", "it", "pt", "ru"],
         ),
+        voices=[],
     )
 
 
@@ -69,6 +71,7 @@ def _qwen3_tts_info(settings: Settings) -> EngineInfo:
             max_speakers=1,
             languages=["auto", "ko", "en", "zh", "ja", "de", "fr", "ru", "pt", "es", "it"],
         ),
+        voices=[EngineVoice(**voice) for voice in qwen3_tts_voices(settings)] if status["mode"] == "live" else [],
     )
 
 

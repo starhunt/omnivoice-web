@@ -17,7 +17,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(verify_a
 
 
 def _resolve_tts_mode(req: TTSRequest) -> str:
-    if req.speaker_id:
+    if req.speaker_id or req.voice_id:
         return "tts"
     if req.design or req.instruct:
         return "design"
@@ -54,6 +54,7 @@ def create_tts_job(req: TTSRequest, session: Session = Depends(get_session)) -> 
         params_json={
             **req.params.model_dump(exclude_none=False),
             "engine": req.engine,
+            "voice_id": req.voice_id,
         },
         audio_format=req.format,
         status="pending",
@@ -83,7 +84,8 @@ def create_podcast_job(
     session: Session = Depends(get_session),
 ) -> JobCreateResponse:
     for seg in req.segments:
-        _require_speaker(session, seg.speaker_id)
+        if seg.speaker_id:
+            _require_speaker(session, seg.speaker_id)
 
     text = "\n\n".join(
         f"{seg.label}: {seg.text}" if seg.label else seg.text

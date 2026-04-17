@@ -59,6 +59,8 @@ def _prompt_cache_path(
 def _resolve_mode(req: TTSRequest) -> str:
     if req.speaker_id:
         return "tts"
+    if req.voice_id:
+        return "tts"
     if req.design:
         return "design"
     if req.instruct:
@@ -193,7 +195,12 @@ def post_tts(
         audio_format=req.format,
         status="running",
     )
-    gen.params_json = {**gen.params_json, "engine": engine_id, "requested_engine": req.engine}
+    gen.params_json = {
+        **gen.params_json,
+        "engine": engine_id,
+        "requested_engine": req.engine,
+        "voice_id": req.voice_id,
+    }
     session.add(gen)
     session.commit()
     session.refresh(gen)
@@ -211,6 +218,7 @@ def post_tts(
                 ref_transcript=speaker.ref_transcript if speaker else None,
                 params=req.params,
                 out_path=out_path,
+                voice_id=req.voice_id,
             )
         else:
             duration_sec = synthesize(

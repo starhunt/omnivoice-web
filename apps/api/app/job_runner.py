@@ -150,6 +150,7 @@ def _run_tts_job(settings: Settings, session, job: Job, gen: Generation | None) 
             ref_transcript=speaker.ref_transcript if speaker else None,
             params=req.params,
             out_path=out_path,
+            voice_id=req.voice_id,
         )
     else:
         duration_sec = synthesize(
@@ -276,7 +277,7 @@ def synthesize_podcast_request(
                     speaker=speaker,
                     preprocess_prompt=req.params.preprocess_prompt,
                 )
-            label = seg.label or speaker.name
+            label = seg.label or (speaker.name if speaker else seg.voice_id) or "voice"
             if progress:
                 progress(idx, total, f"{label} segment {idx + 1}/{total}")
 
@@ -291,6 +292,7 @@ def synthesize_podcast_request(
                     ref_transcript=speaker.ref_transcript if speaker else None,
                     params=req.params,
                     out_path=seg_wav,
+                    voice_id=seg.voice_id,
                 )
             else:
                 dur = synthesize(

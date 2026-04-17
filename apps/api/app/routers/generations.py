@@ -18,6 +18,17 @@ from ..schemas import GenerationOut
 router = APIRouter(prefix="/generations", tags=["generations"], dependencies=[Depends(verify_api_key)])
 
 
+def _apply_generation_filters(stmt, *, q: str | None, status: str | None, speaker_id: str | None):
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(or_(Generation.text.ilike(like), Generation.instruct.ilike(like)))
+    if status:
+        stmt = stmt.where(Generation.status == status)
+    if speaker_id:
+        stmt = stmt.where(Generation.speaker_id == speaker_id)
+    return stmt
+
+
 @router.get("", response_model=list[GenerationOut])
 def list_generations(
     q: str | None = Query(default=None, description="텍스트 부분 검색"),
@@ -28,14 +39,24 @@ def list_generations(
     session: Session = Depends(get_session),
 ) -> list[GenerationOut]:
     stmt = select(Generation).order_by(Generation.created_at.desc()).limit(limit).offset(offset)
-    if q:
-        like = f"%{q}%"
-        stmt = stmt.where(or_(Generation.text.ilike(like), Generation.instruct.ilike(like)))
-    if status:
-        stmt = stmt.where(Generation.status == status)
-    if speaker_id:
-        stmt = stmt.where(Generation.speaker_id == speaker_id)
+    stmt = _apply_generation_filters(stmt, q=q, status=status, speaker_id=speaker_id)
     return list(session.scalars(stmt))
+
+
+@router.get("/count")
+def count_generations(
+    q: str | None = Query(default=None, description="텍스트 부분 검색"),
+    status: str | None = None,
+    speaker_id: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    stmt = _apply_generation_filters(
+        select(func.count(Generation.id)),
+        q=q,
+        status=status,
+        speaker_id=speaker_id,
+    )
+    return {"total": int(session.scalar(stmt) or 0)}
 
 
 @router.get("/stats")

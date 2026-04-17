@@ -77,6 +77,50 @@ export type Generation = {
   finished_at: string | null;
 };
 
+export type Job = {
+  id: string;
+  type: "tts" | "podcast" | string;
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled" | string;
+  generation_id: string | null;
+  request_json: Record<string, unknown>;
+  progress_current: number;
+  progress_total: number;
+  progress_message: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  progress: {
+    current: number;
+    total: number;
+    message: string | null;
+  };
+  audio_url: string | null;
+};
+
+export type JobCreateResponse = {
+  job_id: string;
+  generation_id: string;
+  status: string;
+};
+
+export type PodcastSegment = {
+  speaker_id: string;
+  text: string;
+  label?: string | null;
+  language?: string | null;
+};
+
+export type PodcastJobRequest = {
+  title?: string | null;
+  segments: PodcastSegment[];
+  language?: string | null;
+  params: TTSParams;
+  format: "wav" | "mp3";
+  pause_ms: number;
+  project_id?: string | null;
+};
+
 export type LanguageEntry = {
   code: string;
   name: string;

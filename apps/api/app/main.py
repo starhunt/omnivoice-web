@@ -12,8 +12,9 @@ from sqlalchemy import update
 
 from .config import get_settings
 from .db import SessionLocal, init_db
-from .models import Generation
-from .routers import assets, generations, health, meta, speakers, tts
+from .default_speakers import sync_omnivoice_demo_speakers
+from .models import Generation, Job
+from .routers import assets, generations, health, jobs, meta, speakers, tts
 
 logger = logging.getLogger("omnivoice-web")
 logging.basicConfig(
@@ -29,18 +30,28 @@ def _finalize_stale_running_jobs() -> int:
     이 시점에 그 prcoess는 이미 죽었으므로 안전하게 failed로 확정한다.
     """
     with SessionLocal() as session:
-        stmt = (
+        gen_stmt = (
             update(Generation)
-            .where(Generation.status == "running")
+            .where(Generation.status.in_(("pending", "running")))
             .values(
                 status="failed",
                 error="interrupted_by_restart",
                 finished_at=datetime.now(timezone.utc),
             )
         )
-        result = session.execute(stmt)
+        job_stmt = (
+            update(Job)
+            .where(Job.status.in_(("queued", "running")))
+            .values(
+                status="failed",
+                error="interrupted_by_restart",
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
+        gen_result = session.execute(gen_stmt)
+        job_result = session.execute(job_stmt)
         session.commit()
-        return int(result.rowcount or 0)
+        return int(gen_result.rowcount or 0) + int(job_result.rowcount or 0)
 
 
 @asynccontextmanager
@@ -48,6 +59,9 @@ async def lifespan(_app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
     init_db()
+    imported = sync_omnivoice_demo_speakers(settings)
+    if imported:
+        logger.info("default speaker library updated (%d imported)", imported)
     stale = _finalize_stale_running_jobs()
     if stale:
         logger.warning("finalized %d stale running job(s) → failed(interrupted)", stale)
@@ -75,7 +89,15 @@ def create_app() -> FastAPI:
     )
 
     # /v1 프리픽스
-    for r in (health.router, meta.router, speakers.router, tts.router, generations.router, assets.router):
+    for r in (
+        health.router,
+        meta.router,
+        speakers.router,
+        tts.router,
+        jobs.router,
+        generations.router,
+        assets.router,
+    ):
         app.include_router(r, prefix="/v1")
 
     @app.get("/", include_in_schema=False)

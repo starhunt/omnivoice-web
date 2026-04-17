@@ -84,8 +84,11 @@ export default function ApiDocsPage() {
             <h2 className="text-lg font-semibold">{sec.title}</h2>
             <p className="text-xs text-muted-foreground">{sec.subtitle}</p>
           </div>
-          {sec.endpoints.map((ep) => (
-            <EndpointCard key={`${ep.method}-${ep.path}`} endpoint={ep} />
+          {sec.endpoints.map((ep, idx) => (
+            <EndpointCard
+              key={`${sec.title}-${idx}-${ep.method}-${ep.path}-${ep.title}`}
+              endpoint={ep}
+            />
           ))}
         </section>
       ))}

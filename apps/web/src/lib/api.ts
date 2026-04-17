@@ -1,19 +1,23 @@
 import type {
   Generation,
   Health,
+  Job,
+  JobCreateResponse,
   LanguageEntry,
+  PodcastJobRequest,
   Speaker,
   TTSRequest,
   TTSResponse,
   VoiceAttributeOptions,
 } from "./types";
 
-// 브라우저에서는 same-origin `/api/v1/...`로 프록시 (next.config.ts rewrites).
-// SSR/서버 컴포넌트에서는 직접 백엔드 호출.
+// 긴 TTS 요청은 Next.js rewrite 프록시에서 먼저 끊길 수 있으므로,
+// 브라우저에서도 NEXT_PUBLIC_API_BASE가 있으면 FastAPI를 직접 호출한다.
 const isBrowser = typeof window !== "undefined";
+const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_BASE;
 const API_BASE = isBrowser
-  ? "/api/v1"
-  : `${process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8320"}/v1`;
+  ? `${PUBLIC_API_BASE ?? ""}${PUBLIC_API_BASE ? "/v1" : "/api/v1"}`
+  : `${PUBLIC_API_BASE ?? "http://localhost:8320"}/v1`;
 
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "dev-key-change-me";
 
@@ -63,8 +67,18 @@ export const api = {
   tts: (payload: TTSRequest) =>
     request<TTSResponse>("/tts", { method: "POST", json: payload }),
 
+  createTtsJob: (payload: TTSRequest) =>
+    request<JobCreateResponse>("/jobs/tts", { method: "POST", json: payload }),
+  createPodcastJob: (payload: PodcastJobRequest) =>
+    request<JobCreateResponse>("/jobs/podcast", { method: "POST", json: payload }),
+  listJobs: (query: URLSearchParams = new URLSearchParams()) =>
+    request<Job[]>(`/jobs${query.toString() ? `?${query.toString()}` : ""}`),
+  getJob: (id: string) => request<Job>(`/jobs/${id}`),
+
   listGenerations: (query: URLSearchParams = new URLSearchParams()) =>
     request<Generation[]>(`/generations${query.toString() ? `?${query.toString()}` : ""}`),
+  countGenerations: (query: URLSearchParams = new URLSearchParams()) =>
+    request<{ total: number }>(`/generations/count${query.toString() ? `?${query.toString()}` : ""}`),
   getGeneration: (id: string) => request<Generation>(`/generations/${id}`),
   deleteGeneration: (id: string) =>
     request<void>(`/generations/${id}`, { method: "DELETE" }),
@@ -77,9 +91,11 @@ export const api = {
 };
 
 export function audioUrlFor(id: string, fmt: string): string {
+  if (isBrowser && PUBLIC_API_BASE) return `${PUBLIC_API_BASE}/v1/assets/${id}.${fmt}`;
   return `/api/v1/assets/${id}.${fmt}`;
 }
 
 export function speakerRefUrl(id: string): string {
+  if (isBrowser && PUBLIC_API_BASE) return `${PUBLIC_API_BASE}/v1/assets/speaker/${id}/ref`;
   return `/api/v1/assets/speaker/${id}/ref`;
 }

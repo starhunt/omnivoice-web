@@ -73,3 +73,24 @@ class Generation(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     speaker = relationship("Speaker", lazy="joined")
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_ulid)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)  # tts | podcast
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    generation_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("generations.id"), nullable=True
+    )
+    request_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    progress_current: Mapped[int] = mapped_column(Integer, default=0)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    generation = relationship("Generation", lazy="joined")

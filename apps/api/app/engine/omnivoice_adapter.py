@@ -202,8 +202,10 @@ def transcribe_ref_audio(settings: Settings, ref_audio_path: Path) -> str:
         "OMNIVOICE_DEVICE": settings.omnivoice_device,
         "PYTHONUNBUFFERED": "1",
     })
-    env.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
-    env.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.0")
+    # PYTORCH_MPS_*_WATERMARK_RATIO는 의도적으로 설정하지 않는다.
+    # 0.0(상한 해제)으로 두면 OS 한계까지 무제한 할당 시도 → jetsam이 SIGKILL.
+    # PyTorch 기본값(HIGH=1.4)은 RAM × 1.4 도달 시 자체 OOM exception을 던져 graceful 실패.
+    # 환경변수로 명시 설정한 경우만 존중.
 
     cmd = [str(settings.omnivoice_engine_python), str(SCRIPT_PATH), "--transcribe"]
     try:
@@ -231,6 +233,56 @@ def transcribe_ref_audio(settings: Settings, ref_audio_path: Path) -> str:
     return str(result.get("transcript") or "").strip()
 
 
+def prepare_voice_clone_prompt(
+    settings: Settings,
+    *,
+    ref_audio_path: Path,
+    ref_transcript: str | None,
+    out_path: Path,
+    preprocess_prompt: bool = True,
+) -> str:
+    """Create a reusable OmniVoice VoiceClonePrompt blob in an engine subprocess."""
+    payload = {
+        "ref_audio_path": str(ref_audio_path),
+        "ref_transcript": ref_transcript,
+        "out_path": str(out_path),
+        "preprocess_prompt": preprocess_prompt,
+    }
+    env = os.environ.copy()
+    env.update({
+        "OMNIVOICE_ENGINE_PATH": str(settings.omnivoice_engine_path),
+        "OMNIVOICE_DEVICE": settings.omnivoice_device,
+        "PYTHONUNBUFFERED": "1",
+    })
+
+    cmd = [str(settings.omnivoice_engine_python), str(SCRIPT_PATH), "--prepare-prompt"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            timeout=600,
+            env=env,
+            start_new_session=True,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise EngineError("prepare_prompt_timeout") from exc
+
+    stdout = (proc.stdout or "").strip()
+    if not stdout:
+        raise EngineError(
+            f"prepare_prompt_no_output (rc={proc.returncode}): {(proc.stderr or '')[-500:]}"
+        )
+    try:
+        result = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as exc:
+        raise EngineError(f"prepare_prompt_bad_output: {stdout[-500:]}") from exc
+    if result.get("status") != "ok":
+        raise EngineError(f"prepare_prompt_failed: {result.get('error')}")
+    return str(result.get("ref_text") or "").strip()
+
+
 def synthesize(
     *,
     settings: Settings,
@@ -239,6 +291,7 @@ def synthesize(
     instruct: str | None,
     ref_audio_path: Path | None,
     ref_transcript: str | None,
+    voice_prompt_path: Path | None,
     params: TTSParams,
     out_path: Path,
 ) -> float:
@@ -259,6 +312,7 @@ def synthesize(
             instruct=instruct,
             ref_audio_path=ref_audio_path,
             ref_transcript=ref_transcript,
+            voice_prompt_path=voice_prompt_path,
             params=params,
             wav_out=wav_out,
         )
@@ -284,13 +338,14 @@ def _run_engine_subprocess(
     instruct: str | None,
     ref_audio_path: Path | None,
     ref_transcript: str | None,
+    voice_prompt_path: Path | None,
     params: TTSParams,
     wav_out: Path,
 ) -> float:
     # 화자 복제 모드는 ref_audio 인코딩 peak + generate peak가 동시에 MPS를 요구해
     # 짧은 단일 청크여도 SIGKILL이 발생. 임계/최대치를 더 타이트하게 적용하여 반드시
     # 분할 + 격리 subprocess 경로로 보낸다.
-    if ref_audio_path is not None:
+    if ref_audio_path is not None or voice_prompt_path is not None:
         chunks = split_text_for_synthesis(
             text,
             threshold=min(100, CHUNK_THRESHOLD_CHARS),
@@ -308,6 +363,7 @@ def _run_engine_subprocess(
             instruct=instruct,
             ref_audio_path=ref_audio_path,
             ref_transcript=ref_transcript,
+            voice_prompt_path=voice_prompt_path,
             params=params,
             wav_out=wav_out,
             pass_duration=True,
@@ -326,6 +382,7 @@ def _run_engine_subprocess(
             instruct=instruct,
             ref_audio_path=ref_audio_path,
             ref_transcript=ref_transcript,
+            voice_prompt_path=voice_prompt_path,
             params=params,
             wav_out=wav_out,
         )
@@ -342,6 +399,7 @@ def _run_engine_subprocess(
         instruct=instruct,
         ref_audio_path=ref_audio_path,
         ref_transcript=ref_transcript,
+        voice_prompt_path=voice_prompt_path,
         params=params,
         wav_out=wav_out,
         pass_duration=False,
@@ -356,6 +414,7 @@ def _invoke_engine_once(
     instruct: str | None,
     ref_audio_path: Path | None,
     ref_transcript: str | None,
+    voice_prompt_path: Path | None,
     params: TTSParams,
     wav_out: Path,
     pass_duration: bool,
@@ -367,6 +426,7 @@ def _invoke_engine_once(
         "instruct": instruct,
         "ref_audio_path": str(ref_audio_path) if ref_audio_path else None,
         "ref_transcript": ref_transcript,
+        "voice_prompt_path": str(voice_prompt_path) if voice_prompt_path else None,
         "speed": params.speed,
         "params": params.model_dump(exclude_none=True),
         "out_path": str(wav_out),
@@ -384,8 +444,10 @@ def _invoke_engine_once(
     # MPS watermark는 시스템 전체 VM 사용량("other allocations")을 포함해 계산되어
     # 실사용량이 낮아도 상한에 걸려 할당이 거부될 수 있다. 청킹으로 실제 엔진 메모리가
     # 바운드되어 있으므로 상한을 해제한다. 사용자가 명시적으로 설정했으면 그 값을 존중.
-    env.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
-    env.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.0")
+    # PYTORCH_MPS_*_WATERMARK_RATIO는 의도적으로 설정하지 않는다.
+    # 0.0(상한 해제)으로 두면 OS 한계까지 무제한 할당 시도 → jetsam이 SIGKILL.
+    # PyTorch 기본값(HIGH=1.4)은 RAM × 1.4 도달 시 자체 OOM exception을 던져 graceful 실패.
+    # 환경변수로 명시 설정한 경우만 존중.
 
     cmd = [str(settings.omnivoice_engine_python), str(SCRIPT_PATH)]
     try:
@@ -423,6 +485,7 @@ def _invoke_engine_once(
                 f"# text chars: {len(payload.get('text') or '')} | chunks: {len(payload.get('chunks') or [])}\n"
                 f"# ref_audio: {payload.get('ref_audio_path')}\n"
                 f"# ref_transcript set: {bool(payload.get('ref_transcript'))}\n"
+                f"# voice_prompt: {payload.get('voice_prompt_path')}\n"
                 f"# params: {payload.get('params')}\n"
                 f"# ---- stderr full ----\n{stderr_full}\n"
                 f"# ---- stdout full ----\n{stdout}\n"
@@ -456,6 +519,7 @@ def _run_engine_isolated_chunks(
     instruct: str | None,
     ref_audio_path: Path | None,
     ref_transcript: str | None,
+    voice_prompt_path: Path | None,
     params: TTSParams,
     wav_out: Path,
 ) -> float:
@@ -485,6 +549,7 @@ def _run_engine_isolated_chunks(
                 instruct=instruct,
                 ref_audio_path=ref_audio_path,
                 ref_transcript=ref_transcript,
+                voice_prompt_path=voice_prompt_path,
                 params=params,
                 wav_out=chunk_wav,
                 pass_duration=False,

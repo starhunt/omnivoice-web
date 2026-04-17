@@ -30,6 +30,15 @@ import traceback
 from pathlib import Path
 
 
+def _get_inference_dtype(device: str):
+    """Match OmniVoice's official CLIs: fp16 on accelerators, fp32 on CPU."""
+    import torch  # noqa: WPS433
+
+    if str(device).startswith("cpu"):
+        return torch.float32
+    return torch.float16
+
+
 def _ensure_engine_importable() -> None:
     engine_path = os.environ.get("OMNIVOICE_ENGINE_PATH")
     if engine_path:
@@ -103,15 +112,53 @@ def _write_wav(arr, sample_rate: int, out_path: Path) -> float:
     return float(len(arr)) / float(sample_rate)
 
 
+def _load_voice_clone_prompt(path: str):
+    import torch
+    from omnivoice.models.omnivoice import VoiceClonePrompt  # type: ignore
+
+    payload = torch.load(path, map_location="cpu")
+    return VoiceClonePrompt(
+        ref_audio_tokens=payload["ref_audio_tokens"].detach().cpu(),
+        ref_text=str(payload["ref_text"]),
+        ref_rms=float(payload["ref_rms"]),
+    )
+
+
+def _save_voice_clone_prompt(prompt, out_path: Path) -> None:
+    import torch
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "ref_audio_tokens": prompt.ref_audio_tokens.detach().cpu(),
+            "ref_text": prompt.ref_text,
+            "ref_rms": float(prompt.ref_rms),
+        },
+        out_path,
+    )
+
+
+def _load_model(model_id: str, device: str):
+    from omnivoice.models.omnivoice import OmniVoice  # type: ignore
+
+    dtype = _get_inference_dtype(device)
+    if str(device).startswith("mps"):
+        # device_map="mps" can trip Transformers allocator warmup on some macOS/PyTorch
+        # combinations. Loading fp16 on CPU first and then moving to MPS keeps the
+        # memory win while preserving the code path that already works here.
+        return OmniVoice.from_pretrained(model_id, dtype=dtype).to(device).eval()
+    return OmniVoice.from_pretrained(model_id, device_map=device, dtype=dtype).eval()
+
+
 def run_synthesis(req: dict) -> dict:
     _ensure_engine_importable()
     import torch
-    from omnivoice.models.omnivoice import OmniVoice, OmniVoiceGenerationConfig  # type: ignore
+    from omnivoice.models.omnivoice import OmniVoiceGenerationConfig  # type: ignore
 
     device = os.environ.get("OMNIVOICE_DEVICE", "mps")
     model_id = req.get("model_id") or "k2-fsa/OmniVoice"
 
-    model = OmniVoice.from_pretrained(model_id).to(device).eval()
+    model = _load_model(model_id, device)
     # 모델 .to(device) 과정에서 남은 임시 할당을 즉시 해제 — voice clone prompt
     # 생성/generate 단계의 peak 여유 확보 목적.
     gc.collect()
@@ -124,9 +171,12 @@ def run_synthesis(req: dict) -> dict:
     # 참조 오디오 전처리는 GPU peak 메모리가 크므로 반드시 no_grad 컨텍스트에서 실행하고
     # 직후 캐시를 비워서 이후 model.generate()의 할당 여유를 확보한다.
     voice_clone_prompt = None
+    voice_prompt_path = req.get("voice_prompt_path")
     ref_audio = req.get("ref_audio_path")
     ref_text = req.get("ref_transcript")
-    if ref_audio:
+    if voice_prompt_path:
+        voice_clone_prompt = _load_voice_clone_prompt(str(voice_prompt_path))
+    elif ref_audio:
         with torch.no_grad():
             voice_clone_prompt = model.create_voice_clone_prompt(
                 ref_audio=ref_audio,
@@ -195,18 +245,50 @@ def run_synthesis(req: dict) -> dict:
     }
 
 
+def run_prepare_prompt(req: dict) -> dict:
+    """Create and persist a reusable voice clone prompt for registered speakers."""
+    _ensure_engine_importable()
+    import torch
+
+    device = os.environ.get("OMNIVOICE_DEVICE", "mps")
+    model_id = req.get("model_id") or "k2-fsa/OmniVoice"
+    ref_audio = req["ref_audio_path"]
+    ref_text = req.get("ref_transcript")
+    out_path = Path(req["out_path"])
+    preprocess_prompt = bool(req.get("preprocess_prompt", True))
+
+    model = _load_model(model_id, device)
+    try:
+        with torch.no_grad():
+            prompt = model.create_voice_clone_prompt(
+                ref_audio=ref_audio,
+                ref_text=ref_text,
+                preprocess_prompt=preprocess_prompt,
+            )
+        _save_voice_clone_prompt(prompt, out_path)
+    finally:
+        del model
+        gc.collect()
+        _empty_device_cache(device)
+
+    return {
+        "status": "ok",
+        "out_path": str(out_path),
+        "ref_text": str(prompt.ref_text),
+    }
+
+
 def run_transcribe(req: dict) -> dict:
     """참조 오디오를 Whisper로 전사만 수행. OmniVoice 메인 모델은 로드하지 않음."""
     _ensure_engine_importable()
     import torch
-    from omnivoice.models.omnivoice import OmniVoice  # type: ignore
 
     device = os.environ.get("OMNIVOICE_DEVICE", "mps")
     model_id = req.get("model_id") or "k2-fsa/OmniVoice"
     ref_audio = req["ref_audio_path"]
 
     # OmniVoice의 from_pretrained은 audio_tokenizer/asr_model 포함. ASR만 사용.
-    model = OmniVoice.from_pretrained(model_id).to(device).eval()
+    model = _load_model(model_id, device)
     try:
         with torch.no_grad():
             # ref_text 없이 create_voice_clone_prompt → Whisper 자동 실행
@@ -230,7 +312,23 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--schema", action="store_true", help="입력 스키마 출력")
     parser.add_argument("--transcribe", action="store_true", help="참조 오디오만 Whisper로 전사")
+    parser.add_argument("--prepare-prompt", action="store_true", help="화자 복제 prompt를 생성/저장")
     args = parser.parse_args()
+
+    if args.prepare_prompt:
+        try:
+            raw = sys.stdin.read()
+            req = json.loads(raw) if raw.strip() else {}
+            result = run_prepare_prompt(req)
+            sys.stdout.write(json.dumps(result))
+            return 0
+        except Exception as exc:
+            sys.stdout.write(json.dumps({
+                "status": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+                "trace": traceback.format_exc()[-4000:],
+            }))
+            return 1
 
     if args.transcribe:
         try:
@@ -255,6 +353,7 @@ def main() -> int:
             "instruct": "str|null",
             "ref_audio_path": "str|null",
             "ref_transcript": "str|null",
+            "voice_prompt_path": "str|null (ref_audio보다 우선)",
             "speed": "float|null",
             "duration": "float|null (단일 청크에서만 적용)",
             "params": "dict (OmniVoiceGenerationConfig keys)",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 # ---------- TTS ----------
@@ -83,6 +83,72 @@ class TTSResponse(BaseModel):
     rtf: float | None
     status: str
     created_at: datetime
+
+
+# ---------- Jobs ----------
+
+
+class JobProgress(BaseModel):
+    current: int
+    total: int
+    message: str | None = None
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    type: str
+    status: str
+    generation_id: str | None
+    request_json: dict
+    progress_current: int
+    progress_total: int
+    progress_message: str | None
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    @computed_field
+    @property
+    def progress(self) -> JobProgress:
+        return JobProgress(
+            current=self.progress_current,
+            total=self.progress_total,
+            message=self.progress_message,
+        )
+
+    @computed_field
+    @property
+    def audio_url(self) -> str | None:
+        if not self.generation_id or self.status != "succeeded":
+            return None
+        fmt = str(self.request_json.get("format") or "wav")
+        return f"/v1/assets/{self.generation_id}.{fmt}"
+
+
+class JobCreateResponse(BaseModel):
+    job_id: str
+    generation_id: str
+    status: str
+
+
+class PodcastSegment(BaseModel):
+    speaker_id: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=4_000)
+    label: str | None = Field(default=None, max_length=60)
+    language: str | None = None
+
+
+class PodcastJobRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    segments: list[PodcastSegment] = Field(min_length=1, max_length=200)
+    language: str | None = "ko"
+    params: TTSParams = Field(default_factory=TTSParams)
+    format: AudioFormat = "wav"
+    pause_ms: int = Field(default=350, ge=0, le=5_000)
+    project_id: str | None = None
 
 
 # ---------- Speakers ----------

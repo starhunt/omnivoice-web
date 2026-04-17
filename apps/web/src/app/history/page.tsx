@@ -1,27 +1,49 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, Trash2, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Trash2, Wand2 } from "lucide-react";
 import { api, audioUrlFor } from "@/lib/api";
 import type { Generation } from "@/lib/types";
+
+const PAGE_SIZE = 20;
 
 export default function HistoryPage() {
   const [rows, setRows] = useState<Generation[]>([]);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
 
   const staleCount = useMemo(() => rows.filter((r) => r.status === "running").length, [rows]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
 
-  const load = async () => {
+  const makeQuery = (targetPage: number) => {
+    const qs = new URLSearchParams();
+    if (q.trim()) qs.set("q", q.trim());
+    qs.set("limit", String(PAGE_SIZE));
+    qs.set("offset", String(targetPage * PAGE_SIZE));
+    return qs;
+  };
+
+  const load = async (targetPage = page) => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams();
-      if (q.trim()) qs.set("q", q.trim());
-      qs.set("limit", "100");
-      setRows(await api.listGenerations(qs));
+      const qs = makeQuery(targetPage);
+      const countQs = new URLSearchParams(qs);
+      countQs.delete("limit");
+      countQs.delete("offset");
+      const [nextRows, { total: nextTotal }] = await Promise.all([
+        api.listGenerations(qs),
+        api.countGenerations(countQs),
+      ]);
+      setRows(nextRows);
+      setTotal(nextTotal);
+      setPage(targetPage);
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
@@ -43,7 +65,8 @@ export default function HistoryPage() {
     setBusyId(g.id);
     try {
       await api.deleteGeneration(g.id);
-      setRows((prev) => prev.filter((r) => r.id !== g.id));
+      const nextPage = rows.length === 1 && page > 0 ? page - 1 : page;
+      await load(nextPage);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -58,7 +81,7 @@ export default function HistoryPage() {
     setCleanupBusy(true);
     try {
       const { finalized } = await api.cleanupStaleGenerations();
-      await load();
+      await load(page);
       setErr(null);
       window.alert(`${finalized}건 정리 완료.`);
     } catch (e) {
@@ -66,6 +89,15 @@ export default function HistoryPage() {
     } finally {
       setCleanupBusy(false);
     }
+  };
+
+  const handleSearch = () => {
+    load(0);
+  };
+
+  const goToPage = (nextPage: number) => {
+    const bounded = Math.min(Math.max(nextPage, 0), totalPages - 1);
+    if (bounded !== page) load(bounded);
   };
 
   return (
@@ -83,10 +115,10 @@ export default function HistoryPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="텍스트 검색"
-            onKeyDown={(e) => e.key === "Enter" && load()}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
           />
         </div>
-        <button type="button" onClick={load} className="btn-outline">
+        <button type="button" onClick={handleSearch} className="btn-outline">
           검색
         </button>
         {staleCount > 0 && (
@@ -104,6 +136,35 @@ export default function HistoryPage() {
       </div>
 
       {err && <div className="card border-destructive/40 text-sm text-destructive">{err}</div>}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+        <span>
+          {total === 0 ? "0건" : `${from}-${to} / ${total}건`}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => goToPage(page - 1)}
+            disabled={loading || page === 0}
+            className="btn-outline px-3 py-1.5 disabled:opacity-50"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            이전
+          </button>
+          <span className="min-w-20 text-center">
+            {page + 1} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => goToPage(page + 1)}
+            disabled={loading || page >= totalPages - 1}
+            className="btn-outline px-3 py-1.5 disabled:opacity-50"
+          >
+            다음
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
       <div className="space-y-2">
         {loading ? (

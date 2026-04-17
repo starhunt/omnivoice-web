@@ -181,12 +181,18 @@ def _synthesize_openai_compatible(
     out_path: Path,
 ) -> float:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    wav_out = out_path if out_path.suffix.lower() == ".wav" else out_path.with_suffix(".wav")
+    suffix = out_path.suffix.lower()
+    if suffix in {".wav", ".mp3"}:
+        response_format = suffix.lstrip(".")
+        api_out = out_path
+    else:
+        response_format = "wav"
+        api_out = out_path.with_suffix(".wav")
     payload: dict[str, Any] = {
         "model": settings.qwen3_tts_model,
         "input": text,
         "voice": settings.qwen3_tts_default_speaker.strip().lower(),
-        "response_format": "wav",
+        "response_format": response_format,
     }
     if params.speed:
         payload["speed"] = params.speed
@@ -198,9 +204,12 @@ def _synthesize_openai_compatible(
     )
     if not audio:
         raise EngineError("qwen3_tts_api_empty_audio")
-    wav_out.write_bytes(audio)
-    duration = _wav_duration(wav_out)
-    _convert_to_mp3_if_needed(wav_out, out_path)
+    api_out.write_bytes(audio)
+    if response_format == "wav":
+        duration = _wav_duration(api_out)
+        _convert_to_mp3_if_needed(api_out, out_path)
+    else:
+        duration = 0.0
     return duration
 
 

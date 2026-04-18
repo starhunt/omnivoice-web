@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from ..auth import verify_api_key
 from ..config import Settings, get_settings
+from ..db import get_session
 from ..engine.registry import engines_response
+from ..provider_settings import effective_settings
 from ..schemas import EnginesResponse, LanguageEntry, VoiceAttributeOptions
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
@@ -89,5 +92,8 @@ def list_nonverbal_tags() -> list[str]:
 
 
 @router.get("/engines", response_model=EnginesResponse)
-def list_tts_engines(settings: Settings = Depends(get_settings)) -> EnginesResponse:
-    return engines_response(settings)
+def list_tts_engines(
+    settings: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
+) -> EnginesResponse:
+    return engines_response(effective_settings(settings, session))

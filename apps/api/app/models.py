@@ -48,6 +48,20 @@ class Speaker(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class TTSProvider(Base):
+    __tablename__ = "tts_providers"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_ulid)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    engine: Mapped[str] = mapped_column(String(50), nullable=False)  # omnivoice | qwen3-tts
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    config_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Generation(Base):
     __tablename__ = "generations"
 

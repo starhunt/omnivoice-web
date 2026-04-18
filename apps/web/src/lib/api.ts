@@ -9,6 +9,9 @@ import type {
   Speaker,
   TTSRequest,
   TTSResponse,
+  TTSProvider,
+  TTSProviderInput,
+  TTSProviderTestResult,
   VoiceAttributeOptions,
 } from "./types";
 
@@ -56,6 +59,16 @@ export const api = {
   voiceAttributes: () => request<VoiceAttributeOptions>("/voice-attributes"),
   nonverbalTags: () => request<string[]>("/nonverbal-tags"),
   engines: () => request<EnginesResponse>("/engines"),
+
+  listProviders: () => request<TTSProvider[]>("/providers"),
+  createProvider: (payload: TTSProviderInput) =>
+    request<TTSProvider>("/providers", { method: "POST", json: payload }),
+  patchProvider: (id: string, patch: Partial<TTSProviderInput>) =>
+    request<TTSProvider>(`/providers/${id}`, { method: "PATCH", json: patch }),
+  deleteProvider: (id: string) =>
+    request<void>(`/providers/${id}`, { method: "DELETE" }),
+  testProvider: (id: string) =>
+    request<TTSProviderTestResult>(`/providers/${id}/test`, { method: "POST" }),
 
   listSpeakers: () => request<Speaker[]>("/speakers"),
   getSpeaker: (id: string) => request<Speaker>(`/speakers/${id}`),

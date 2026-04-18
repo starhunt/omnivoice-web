@@ -24,6 +24,7 @@ from ..engine.omnivoice_adapter import (
 from ..engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
 from ..engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from ..models import Generation, Speaker
+from ..provider_settings import effective_settings
 from ..schemas import TTSRequest, TTSResponse
 from ..storage import audio_path_for, relpath
 
@@ -150,6 +151,7 @@ def post_tts(
     settings: Settings = Depends(get_settings),
     session: Session = Depends(get_session),
 ) -> TTSResponse:
+    settings = effective_settings(settings, session)
     # 화자 조회
     speaker: Speaker | None = None
     if req.speaker_id:

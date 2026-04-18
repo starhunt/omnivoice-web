@@ -18,6 +18,7 @@ from ..config import Settings, get_settings
 from ..db import get_session
 from ..job_runner import synthesize_podcast_request
 from ..models import Generation, Speaker
+from ..provider_settings import effective_settings
 from ..schemas import PodcastJobRequest, PodcastSegment, TTSParams
 from .elevenlabs_compat import (
     ElevenLabsTTSRequest,
@@ -158,6 +159,7 @@ def create_speech(
     settings: Settings = Depends(get_settings),
     session: Session = Depends(get_session),
 ) -> FileResponse:
+    settings = effective_settings(settings, session)
     ssml_segments = _ssml_voice_segments(session, req.input)
     if ssml_segments:
         path, gen = _synthesize_openai_ssml(

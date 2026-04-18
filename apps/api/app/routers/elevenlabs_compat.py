@@ -25,6 +25,7 @@ from ..engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
 from ..engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from ..job_runner import synthesize_podcast_request
 from ..models import Generation, Speaker
+from ..provider_settings import effective_settings
 from ..schemas import PodcastJobRequest, PodcastSegment, TTSParams
 from ..storage import audio_path_for, relpath
 from .tts import ensure_speaker_voice_prompt
@@ -150,6 +151,7 @@ def _synthesize_audio_file(
     settings: Settings,
     session: Session,
 ) -> tuple[Path, str, Generation]:
+    settings = effective_settings(settings, session)
     speaker = session.get(Speaker, voice_id)
     if not speaker or speaker.deleted_at is not None:
         raise HTTPException(status_code=404, detail={"status": "voice_not_found", "message": "Voice not found"})
@@ -247,6 +249,7 @@ def _synthesize_dialogue_file(
     settings: Settings,
     session: Session,
 ) -> tuple[Path, str, Generation, str]:
+    settings = effective_settings(settings, session)
     fmt = _audio_format(output_format)
     segments: list[PodcastSegment] = []
     for item in req.inputs:

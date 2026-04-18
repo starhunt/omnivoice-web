@@ -25,6 +25,7 @@ from .engine.omnivoice_adapter import EngineError, build_instruct_from_design, s
 from .engine.qwen3_tts_adapter import synthesize as synthesize_qwen3_tts
 from .engine.registry import ENGINE_QWEN3_TTS, resolve_engine
 from .models import Generation, Job, Speaker
+from .provider_settings import effective_settings
 from .routers.tts import ensure_speaker_voice_prompt
 from .schemas import PodcastJobRequest, TTSParams, TTSRequest
 from .storage import audio_path_for, relpath
@@ -73,6 +74,7 @@ def _fail_job(session, job: Job, gen: Generation | None, error: str) -> None:
 def _run_job(job_id: str) -> None:
     settings = get_settings()
     with SessionLocal() as session:
+        settings = effective_settings(settings, session)
         job = session.get(Job, job_id)
         if not job:
             logger.warning("job %s not found", job_id)

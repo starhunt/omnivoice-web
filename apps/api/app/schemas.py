@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 AudioFormat = Literal["wav", "mp3"]
 TtsEngineId = Literal["auto", "omnivoice", "qwen3-tts"]
+ProviderEngineId = Literal["omnivoice", "qwen3-tts"]
 
 
 class TTSParams(BaseModel):
@@ -189,6 +190,49 @@ class EnginesResponse(BaseModel):
     default_engine: str
     selected_engine: str | None
     engines: list[EngineInfo]
+
+
+# ---------- Providers ----------
+
+
+class TTSProviderBase(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    engine: ProviderEngineId
+    enabled: bool = True
+    is_default: bool = False
+    config: dict = Field(default_factory=dict)
+
+
+class TTSProviderCreate(TTSProviderBase):
+    pass
+
+
+class TTSProviderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    enabled: bool | None = None
+    is_default: bool | None = None
+    config: dict | None = None
+
+
+class TTSProviderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    engine: str
+    enabled: bool
+    is_default: bool
+    config: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class TTSProviderTestResult(BaseModel):
+    provider_id: str
+    ok: bool
+    mode: str | None = None
+    reason: str | None = None
+    detail: dict = Field(default_factory=dict)
 
 
 # ---------- Speakers ----------

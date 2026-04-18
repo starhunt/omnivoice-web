@@ -14,7 +14,8 @@ from .config import get_settings
 from .db import SessionLocal, init_db
 from .default_speakers import sync_omnivoice_demo_speakers
 from .models import Generation, Job
-from .routers import assets, elevenlabs_compat, gemini_compat, generations, health, jobs, meta, openai_compat, speakers, tts
+from .provider_settings import seed_default_providers
+from .routers import assets, elevenlabs_compat, gemini_compat, generations, health, jobs, meta, openai_compat, providers, speakers, tts
 
 logger = logging.getLogger("omnivoice-web")
 logging.basicConfig(
@@ -59,6 +60,10 @@ async def lifespan(_app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
     init_db()
+    with SessionLocal() as session:
+        seeded = seed_default_providers(settings, session)
+    if seeded:
+        logger.info("seeded %d TTS provider setting(s)", seeded)
     imported = sync_omnivoice_demo_speakers(settings)
     if imported:
         logger.info("default speaker library updated (%d imported)", imported)
@@ -96,6 +101,7 @@ def create_app() -> FastAPI:
         tts.router,
         jobs.router,
         generations.router,
+        providers.router,
         assets.router,
     ):
         app.include_router(r, prefix="/v1")

@@ -156,6 +156,35 @@ export type EnginesResponse = {
   engines: EngineInfo[];
 };
 
+export type ProviderEngineId = "omnivoice" | "qwen3-tts";
+
+export type TTSProvider = {
+  id: string;
+  name: string;
+  engine: ProviderEngineId;
+  enabled: boolean;
+  is_default: boolean;
+  config: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TTSProviderInput = {
+  name: string;
+  engine: ProviderEngineId;
+  enabled: boolean;
+  is_default: boolean;
+  config: Record<string, unknown>;
+};
+
+export type TTSProviderTestResult = {
+  provider_id: string;
+  ok: boolean;
+  mode: string | null;
+  reason: string | null;
+  detail: Record<string, unknown>;
+};
+
 export type LanguageEntry = {
   code: string;
   name: string;

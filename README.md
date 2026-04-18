@@ -162,6 +162,7 @@ omnivoice-web/
 - 생성 히스토리 (검색 / 재생 / 페이징)
 - 비동기 Job API (`/v1/jobs/tts`, `/v1/jobs/podcast`)
 - 다중 화자 팟캐스트 Job
+- Provider 등록 관리 (`/v1/providers`, 설정 화면)
 - 파라미터 제어 (num_step / guidance_scale / speed / denoise 등)
 - 비언어 태그 13종 1클릭 삽입
 - REST API + OpenAPI (`/docs`)
@@ -235,6 +236,34 @@ Python 브리지 방식으로 설치한 경우:
 ```bash
 $QWEN3_TTS_PYTHON apps/api/scripts/qwen3_tts_cli.py --health
 ```
+
+## Provider 설정 관리
+
+설정 화면에서 Qwen3-TTS와 OmniVoice Provider를 등록/수정/테스트할 수 있다. 최초 실행 시 `.env` 값이 DB Provider로 seed되고, 이후 요청 처리에는 DB의 기본 Provider가 `.env`보다 우선 적용된다.
+
+```bash
+curl http://localhost:8320/v1/providers \
+  -H "Authorization: Bearer dev-key-change-me"
+
+curl -X PATCH http://localhost:8320/v1/providers/PROVIDER_ID \
+  -H "Authorization: Bearer dev-key-change-me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_default": true,
+    "config": {
+      "base_url": "http://A100_SERVER:8001",
+      "clone_base_url": "http://A100_SERVER:8002",
+      "model": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+      "clone_model": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
+      "default_speaker": "sohee"
+    }
+  }'
+
+curl -X POST http://localhost:8320/v1/providers/PROVIDER_ID/test \
+  -H "Authorization: Bearer dev-key-change-me"
+```
+
+Provider 변경은 새 요청부터 반영되며 API 재시작이 필요 없다.
 
 ## 트러블슈팅
 

@@ -16,6 +16,7 @@ from ..config import Settings, get_settings
 from ..db import get_session
 from ..job_runner import synthesize_podcast_request
 from ..models import Generation, Speaker
+from ..provider_settings import effective_settings
 from ..schemas import PodcastJobRequest, PodcastSegment, TTSParams
 
 router = APIRouter(tags=["gemini-compat"], dependencies=[Depends(verify_api_key)])
@@ -155,6 +156,7 @@ def generate_content_tts(
     settings: Settings = Depends(get_settings),
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
+    settings = effective_settings(settings, session)
     prompt = _extract_text(req.contents).strip()
     if not prompt:
         raise HTTPException(status_code=422, detail="contents_text_required")

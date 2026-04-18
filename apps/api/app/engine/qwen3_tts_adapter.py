@@ -14,6 +14,7 @@ import subprocess
 import urllib.error
 import urllib.request
 import wave
+from base64 import b64encode
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,7 @@ def qwen3_tts_status(settings: Settings) -> dict[str, Any]:
     python_ok = settings.qwen3_tts_python.exists()
     enabled = settings.qwen3_tts_enabled
     base_url = _base_url(settings)
+    clone_base_url = _clone_base_url(settings)
     api_ok = False
     api_reason: str | None = None
     if enabled and base_url:
@@ -79,6 +81,7 @@ def qwen3_tts_status(settings: Settings) -> dict[str, Any]:
     return {
         "enabled": enabled,
         "base_url": base_url,
+        "clone_base_url": clone_base_url,
         "api_available": api_ok,
         "engine_python_exists": python_ok,
         "bridge_script_exists": script_ok,
@@ -154,29 +157,42 @@ def _base_url(settings: Settings) -> str:
     return (settings.qwen3_tts_base_url or "").strip().rstrip("/")
 
 
-def _api_url(settings: Settings, path: str) -> str:
-    return f"{_base_url(settings)}{path}"
+def _clone_base_url(settings: Settings) -> str:
+    return (settings.qwen3_tts_clone_base_url or "").strip().rstrip("/")
 
 
-def _api_headers(settings: Settings) -> dict[str, str]:
+def _api_url(base_url: str, path: str) -> str:
+    return f"{base_url}{path}"
+
+
+def _api_headers(settings: Settings, *, clone: bool = False) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if settings.qwen3_tts_api_key:
-        headers["Authorization"] = f"Bearer {settings.qwen3_tts_api_key}"
+    api_key = settings.qwen3_tts_clone_api_key if clone else settings.qwen3_tts_api_key
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
 def _api_get(settings: Settings, path: str, *, timeout: float) -> bytes:
-    req = urllib.request.Request(_api_url(settings, path), headers=_api_headers(settings), method="GET")
+    req = urllib.request.Request(_api_url(_base_url(settings), path), headers=_api_headers(settings), method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as res:  # noqa: S310 - URL is operator-configured.
         return res.read()
 
 
-def _api_post_json(settings: Settings, path: str, payload: dict[str, Any], *, timeout: float) -> bytes:
+def _api_post_json_to_url(
+    settings: Settings,
+    base_url: str,
+    path: str,
+    payload: dict[str, Any],
+    *,
+    timeout: float,
+    clone: bool = False,
+) -> bytes:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        _api_url(settings, path),
+        _api_url(base_url, path),
         data=body,
-        headers=_api_headers(settings),
+        headers=_api_headers(settings, clone=clone),
         method="POST",
     )
     try:
@@ -184,7 +200,8 @@ def _api_post_json(settings: Settings, path: str, payload: dict[str, Any], *, ti
             return res.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise EngineError(f"qwen3_tts_api_failed ({exc.code}): {detail[-1000:]}") from exc
+        prefix = "qwen3_tts_clone_api_failed" if clone else "qwen3_tts_api_failed"
+        raise EngineError(f"{prefix} ({exc.code}): {detail[-1000:]}") from exc
 
 
 def _wav_duration(path: Path) -> float:
@@ -194,11 +211,27 @@ def _wav_duration(path: Path) -> float:
     return frames / float(rate) if rate else 0.0
 
 
+def _audio_data_url(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".mp3":
+        mime = "audio/mpeg"
+    elif suffix == ".m4a":
+        mime = "audio/mp4"
+    elif suffix == ".flac":
+        mime = "audio/flac"
+    else:
+        mime = "audio/wav"
+    return f"data:{mime};base64,{b64encode(path.read_bytes()).decode('ascii')}"
+
+
 def _synthesize_openai_compatible(
     *,
     settings: Settings,
     text: str,
+    language: str | None,
     voice_id: str | None,
+    ref_audio_path: Path | None,
+    ref_transcript: str | None,
     params: TTSParams,
     out_path: Path,
 ) -> float:
@@ -210,19 +243,45 @@ def _synthesize_openai_compatible(
     else:
         response_format = "wav"
         api_out = out_path.with_suffix(".wav")
-    payload: dict[str, Any] = {
-        "model": settings.qwen3_tts_model,
-        "input": text,
-        "voice": (voice_id or settings.qwen3_tts_default_speaker).strip().lower(),
-        "response_format": response_format,
-    }
+    if ref_audio_path:
+        clone_base_url = _clone_base_url(settings)
+        if not clone_base_url:
+            raise EngineError("qwen3_tts_clone_base_url_required")
+        if not ref_audio_path.exists():
+            raise EngineError(f"qwen3_tts_ref_audio_missing: {ref_audio_path}")
+        ref_text = (ref_transcript or "").strip()
+        payload: dict[str, Any] = {
+            "model": settings.qwen3_tts_clone_model,
+            "input": text,
+            "task_type": "Base",
+            "ref_audio": _audio_data_url(ref_audio_path),
+            "response_format": response_format,
+            "x_vector_only_mode": not bool(ref_text),
+        }
+        if ref_text:
+            payload["ref_text"] = ref_text
+        if language:
+            payload["language"] = _language(language)
+        api_base_url = clone_base_url
+        clone = True
+    else:
+        payload = {
+            "model": settings.qwen3_tts_model,
+            "input": text,
+            "voice": (voice_id or settings.qwen3_tts_default_speaker).strip().lower(),
+            "response_format": response_format,
+        }
+        api_base_url = _base_url(settings)
+        clone = False
     if params.speed:
         payload["speed"] = params.speed
-    audio = _api_post_json(
+    audio = _api_post_json_to_url(
         settings,
+        api_base_url,
         "/v1/audio/speech",
         payload,
         timeout=float(DEFAULT_TIMEOUT_SEC),
+        clone=clone,
     )
     if not audio:
         raise EngineError("qwen3_tts_api_empty_audio")
@@ -254,7 +313,10 @@ def synthesize(
         return _synthesize_openai_compatible(
             settings=settings,
             text=text,
+            language=language,
             voice_id=voice_id,
+            ref_audio_path=ref_audio_path,
+            ref_transcript=ref_transcript,
             params=params,
             out_path=out_path,
         )

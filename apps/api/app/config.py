@@ -34,12 +34,17 @@ class Settings(BaseSettings):
         description="vLLM-Omni/OpenAI-compatible Qwen3-TTS base URL, e.g. http://127.0.0.1:8001",
     )
     qwen3_tts_api_key: str = Field(default="")
+    qwen3_tts_clone_base_url: str = Field(
+        default="",
+        description="Qwen3-TTS Base clone server URL, e.g. http://127.0.0.1:8002",
+    )
+    qwen3_tts_clone_api_key: str = Field(default="")
     qwen3_tts_python: Path = Field(
         default=Path("/opt/engines/qwen3-tts/.venv/bin/python"),
         description="Qwen3-TTS 실행용 Python 인터프리터",
     )
     qwen3_tts_model: str = Field(default="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice")
-    qwen3_tts_clone_model: str = Field(default="Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+    qwen3_tts_clone_model: str = Field(default="Qwen/Qwen3-TTS-12Hz-0.6B-Base")
     qwen3_tts_design_model: str = Field(default="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
     qwen3_tts_device: str = Field(default="cuda:0")
     qwen3_tts_dtype: str = Field(default="bfloat16")

@@ -19,6 +19,7 @@ import {
 type Mode = "tts" | "design" | "auto";
 type StudioKind = "single" | "podcast";
 type EngineChoice = "auto" | "omnivoice" | "qwen3-tts";
+type QwenSingleMode = "voice" | "clone";
 
 const EMPTY_SEGMENT = { speaker_id: "", voice_id: "", label: "", text: "" };
 const SAMPLE_PODCAST_SCRIPT = [
@@ -41,6 +42,23 @@ function firstSpeakerId(speakers: Speaker[], preferredName?: string): string {
 
 function secondSpeakerId(speakers: Speaker[], firstId: string): string {
   return speakers.find((s) => s.id !== firstId)?.id ?? firstId;
+}
+
+function hasSegmentTarget(seg: PodcastSegment, qwenActive: boolean): boolean {
+  return qwenActive ? Boolean(seg.voice_id || seg.speaker_id) : Boolean(seg.speaker_id);
+}
+
+function qwenTargetValue(seg: PodcastSegment | undefined): string {
+  if (!seg) return "";
+  if (seg.speaker_id) return `speaker:${seg.speaker_id}`;
+  if (seg.voice_id) return `voice:${seg.voice_id}`;
+  return "";
+}
+
+function qwenTargetPatch(value: string): Pick<PodcastSegment, "speaker_id" | "voice_id"> {
+  if (value.startsWith("speaker:")) return { speaker_id: value.slice("speaker:".length), voice_id: null };
+  if (value.startsWith("voice:")) return { speaker_id: null, voice_id: value.slice("voice:".length) };
+  return { speaker_id: null, voice_id: null };
 }
 
 function defaultPodcastSegments(speakers: Speaker[]): PodcastSegment[] {
@@ -95,6 +113,7 @@ export function StudioForm() {
   const [language, setLanguage] = useState<string>("ko");
   const [speakerId, setSpeakerId] = useState<string | null>(null);
   const [qwenVoiceId, setQwenVoiceId] = useState<string>("");
+  const [qwenSingleMode, setQwenSingleMode] = useState<QwenSingleMode>("voice");
   const [format, setFormat] = useState<"wav" | "mp3">("wav");
   const [engine, setEngine] = useState<EngineChoice>("auto");
   const [params, setParams] = useState<TTSParams>(DEFAULT_TTS_PARAMS);
@@ -139,21 +158,43 @@ export function StudioForm() {
       })),
     [activeEngine],
   );
-  const hostSpeakerId = segments.find((seg) => (seg.label || "").toUpperCase() === "HOST")?.speaker_id ?? "";
-  const guestSpeakerId = segments.find((seg) => (seg.label || "").toUpperCase() === "GUEST")?.speaker_id ?? "";
-  const hostVoiceId = segments.find((seg) => (seg.label || "").toUpperCase() === "HOST")?.voice_id ?? "";
-  const guestVoiceId = segments.find((seg) => (seg.label || "").toUpperCase() === "GUEST")?.voice_id ?? "";
-
-  const canSubmitSingle =
-    text.trim().length > 0 && (qwenActive ? Boolean(qwenVoiceId) : mode !== "tts" || Boolean(speakerId));
-  const canSubmitPodcast = showSegmentEditor
-    ? segments.length > 0 && segments.every((seg) => (qwenActive ? seg.voice_id : seg.speaker_id) && seg.text.trim().length > 0)
-    : podcastScript.trim().length > 0 && Boolean(qwenActive ? hostVoiceId || qwenVoiceOptions[0] : hostSpeakerId || speakers[0]);
-
   const speakerOptions = useMemo(
     () => speakers.map((s) => ({ id: s.id, name: `${s.name}${s.is_favorite ? " ★" : ""}` })),
     [speakers],
   );
+  const qwenCloneOptions = useMemo(
+    () =>
+      speakers
+        .filter((s) => Boolean(s.source_audio_path))
+        .map((s) => ({ id: s.id, name: `${s.name}${s.is_favorite ? " ★" : ""}` })),
+    [speakers],
+  );
+  const qwenTargetOptions = useMemo(
+    () => [
+      ...qwenVoiceOptions.map((voice) => ({ id: `voice:${voice.id}`, name: `Voice: ${voice.name}` })),
+      ...qwenCloneOptions.map((speaker) => ({ id: `speaker:${speaker.id}`, name: `복제: ${speaker.name}` })),
+    ],
+    [qwenVoiceOptions, qwenCloneOptions],
+  );
+  const hostSegment = segments.find((seg) => (seg.label || "").toUpperCase() === "HOST");
+  const guestSegment = segments.find((seg) => (seg.label || "").toUpperCase() === "GUEST");
+  const hostSpeakerId = hostSegment?.speaker_id ?? "";
+  const guestSpeakerId = guestSegment?.speaker_id ?? "";
+  const hostVoiceId = hostSegment?.voice_id ?? "";
+  const guestVoiceId = guestSegment?.voice_id ?? "";
+  const hostQwenTarget = qwenTargetValue(hostSegment);
+  const guestQwenTarget = qwenTargetValue(guestSegment);
+
+  const canSubmitSingle =
+    text.trim().length > 0 &&
+    (qwenActive
+      ? qwenSingleMode === "clone"
+        ? Boolean(speakerId)
+        : Boolean(qwenVoiceId)
+      : mode !== "tts" || Boolean(speakerId));
+  const canSubmitPodcast = showSegmentEditor
+    ? segments.length > 0 && segments.every((seg) => hasSegmentTarget(seg, qwenActive) && seg.text.trim().length > 0)
+    : podcastScript.trim().length > 0 && Boolean(qwenActive ? hostQwenTarget || qwenTargetOptions[0] : hostSpeakerId || speakers[0]);
 
   useEffect(() => {
     Promise.all([
@@ -191,15 +232,26 @@ export function StudioForm() {
     if (!qwenActive) return;
     const first = qwenVoiceOptions[0]?.id;
     if (first && !qwenVoiceId) setQwenVoiceId(first);
+    const cloneIds = new Set(qwenCloneOptions.map((speaker) => speaker.id));
     if (first) {
       setSegments((prev) =>
-        prev.map((seg, idx) => ({
-          ...seg,
-          voice_id: seg.voice_id || qwenVoiceOptions[idx % qwenVoiceOptions.length]?.id || first,
-        })),
+        prev.map((seg, idx) => {
+          if (seg.voice_id || (seg.speaker_id && cloneIds.has(seg.speaker_id))) return seg;
+          return {
+            ...seg,
+            speaker_id: null,
+            voice_id: qwenVoiceOptions[idx % qwenVoiceOptions.length]?.id || first,
+          };
+        }),
       );
     }
-  }, [qwenActive, qwenVoiceId, qwenVoiceOptions]);
+  }, [qwenActive, qwenVoiceId, qwenVoiceOptions, qwenCloneOptions]);
+
+  useEffect(() => {
+    if (!qwenActive || qwenSingleMode !== "clone") return;
+    if (speakerId && qwenCloneOptions.some((speaker) => speaker.id === speakerId)) return;
+    setSpeakerId(qwenCloneOptions[0]?.id ?? null);
+  }, [qwenActive, qwenSingleMode, qwenCloneOptions, speakerId]);
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -231,8 +283,8 @@ export function StudioForm() {
 
   const singlePayload = () => ({
     text,
-    speaker_id: qwenActive ? null : mode === "tts" ? speakerId : null,
-    voice_id: qwenActive ? qwenVoiceId : null,
+    speaker_id: qwenActive ? (qwenSingleMode === "clone" ? speakerId : null) : mode === "tts" ? speakerId : null,
+    voice_id: qwenActive && qwenSingleMode === "voice" ? qwenVoiceId : null,
     language: language || null,
     design: !qwenActive && mode === "design" ? design : null,
     params,
@@ -276,15 +328,15 @@ export function StudioForm() {
       if (!podcastSegments.length) {
         throw new Error("HOST: 내용 또는 GUEST: 내용 형식의 대본을 입력하세요.");
       }
-      if (podcastSegments.some((seg) => !(qwenActive ? seg.voice_id : seg.speaker_id) || !seg.text.trim())) {
+      if (podcastSegments.some((seg) => !hasSegmentTarget(seg, qwenActive) || !seg.text.trim())) {
         throw new Error("모든 발화에 화자와 텍스트가 필요합니다.");
       }
       setSegments(podcastSegments);
       const created = await api.createPodcastJob({
         title: podcastTitle || null,
         segments: podcastSegments.map((seg) => ({
-          speaker_id: qwenActive ? null : seg.speaker_id,
-          voice_id: qwenActive ? seg.voice_id : null,
+          speaker_id: qwenActive ? seg.speaker_id ?? null : seg.speaker_id,
+          voice_id: qwenActive ? seg.voice_id ?? null : null,
           label: seg.label || null,
           text: seg.text.trim(),
           language: seg.language || null,
@@ -317,7 +369,10 @@ export function StudioForm() {
     const normalized = label.toUpperCase();
     const match = segments.find((seg) => (seg.label || "").toUpperCase() === normalized);
     if (qwenActive) {
+      if (match?.speaker_id) return { speaker_id: match.speaker_id, voice_id: null };
       if (match?.voice_id) return { voice_id: match.voice_id, speaker_id: null };
+      if (normalized === "HOST" && hostSpeakerId) return { speaker_id: hostSpeakerId, voice_id: null };
+      if (normalized === "GUEST" && guestSpeakerId) return { speaker_id: guestSpeakerId, voice_id: null };
       if (normalized === "HOST" && hostVoiceId) return { voice_id: hostVoiceId, speaker_id: null };
       if (normalized === "GUEST" && guestVoiceId) return { voice_id: guestVoiceId, speaker_id: null };
       return { voice_id: qwenVoiceOptions[0]?.id ?? "", speaker_id: null };
@@ -334,7 +389,7 @@ export function StudioForm() {
       prev.map((seg) =>
         (seg.label || "").toUpperCase() === normalized
           ? qwenActive
-            ? { ...seg, voice_id: value, speaker_id: null }
+            ? { ...seg, ...qwenTargetPatch(value) }
             : { ...seg, speaker_id: value, voice_id: null }
           : seg,
       ),
@@ -347,7 +402,7 @@ export function StudioForm() {
       setErr("HOST: 내용 또는 GUEST: 내용 형식의 대본을 입력하세요.");
       return;
     }
-    if (parsed.some((seg) => !(qwenActive ? seg.voice_id : seg.speaker_id))) {
+    if (parsed.some((seg) => !hasSegmentTarget(seg, qwenActive))) {
       setErr("대본에 사용할 화자를 먼저 선택하세요.");
       return;
     }
@@ -421,7 +476,7 @@ export function StudioForm() {
             )}
             {qwenActive && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Qwen3-TTS는 엔진 내장 voice를 사용합니다. OmniVoice 화자 복제 목록과 별도로 선택됩니다.
+                기본 Voice는 CustomVoice 1.7B, 등록 화자 복제는 Base 0.6B 서버로 생성합니다.
               </p>
             )}
           </div>
@@ -429,12 +484,38 @@ export function StudioForm() {
           {kind === "single" && (
             <>
               {qwenActive ? (
-                <SpeakerSelect
-                  label="Qwen Voice"
-                  value={qwenVoiceId}
-                  speakers={qwenVoiceOptions}
-                  onChange={(v) => setQwenVoiceId(v)}
-                />
+                <>
+                  <label className="label">Qwen 모드</label>
+                  <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+                    {(["voice", "clone"] as QwenSingleMode[]).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setQwenSingleMode(m)}
+                        className={`rounded px-2 py-1.5 text-xs font-medium transition ${
+                          qwenSingleMode === m ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {m === "voice" ? "기본 Voice" : "화자 복제"}
+                      </button>
+                    ))}
+                  </div>
+                  {qwenSingleMode === "voice" ? (
+                    <SpeakerSelect
+                      label="Qwen Voice"
+                      value={qwenVoiceId}
+                      speakers={qwenVoiceOptions}
+                      onChange={(v) => setQwenVoiceId(v)}
+                    />
+                  ) : (
+                    <SpeakerSelect
+                      label="복제 화자"
+                      value={speakerId ?? ""}
+                      speakers={qwenCloneOptions}
+                      onChange={(v) => setSpeakerId(v || null)}
+                    />
+                  )}
+                </>
               ) : (
                 <>
                   <label className="label">모드</label>
@@ -690,15 +771,15 @@ export function StudioForm() {
 
             <div className="grid gap-3 md:grid-cols-2">
               <SpeakerSelect
-                label={qwenActive ? "HOST Voice" : "HOST 화자"}
-                value={qwenActive ? hostVoiceId : hostSpeakerId}
-                speakers={qwenActive ? qwenVoiceOptions : speakerOptions}
+                label={qwenActive ? "HOST 대상" : "HOST 화자"}
+                value={qwenActive ? hostQwenTarget : hostSpeakerId}
+                speakers={qwenActive ? qwenTargetOptions : speakerOptions}
                 onChange={(v) => setSpeakerForLabel("HOST", v)}
               />
               <SpeakerSelect
-                label={qwenActive ? "GUEST Voice" : "GUEST 화자"}
-                value={qwenActive ? guestVoiceId : guestSpeakerId}
-                speakers={qwenActive ? qwenVoiceOptions : speakerOptions}
+                label={qwenActive ? "GUEST 대상" : "GUEST 화자"}
+                value={qwenActive ? guestQwenTarget : guestSpeakerId}
+                speakers={qwenActive ? qwenTargetOptions : speakerOptions}
                 onChange={(v) => setSpeakerForLabel("GUEST", v)}
               />
             </div>
@@ -759,13 +840,13 @@ export function StudioForm() {
                       />
                       <SpeakerSelect
                         label=""
-                        value={qwenActive ? seg.voice_id ?? "" : seg.speaker_id ?? ""}
-                        speakers={qwenActive ? qwenVoiceOptions : speakerOptions}
+                        value={qwenActive ? qwenTargetValue(seg) : seg.speaker_id ?? ""}
+                        speakers={qwenActive ? qwenTargetOptions : speakerOptions}
                         onChange={(v) =>
                           updateSegment(
                             idx,
                             qwenActive
-                              ? { voice_id: v, speaker_id: null }
+                              ? qwenTargetPatch(v)
                               : { speaker_id: v, voice_id: null },
                           )
                         }
@@ -796,9 +877,9 @@ export function StudioForm() {
                 실제 2인 팟캐스트는 화자 라이브러리에 두 명 이상의 화자를 등록한 뒤 서로 다른 화자를 선택하세요.
               </p>
             )}
-            {qwenActive && qwenVoiceOptions.length < 2 && (
+            {qwenActive && qwenTargetOptions.length < 2 && (
               <p className="text-xs text-muted-foreground">
-                Qwen voice가 두 개 이상 노출되면 HOST와 GUEST에 서로 다른 voice를 지정할 수 있습니다.
+                Qwen voice 또는 참조 오디오가 있는 등록 화자가 두 개 이상이면 HOST와 GUEST에 서로 다른 대상을 지정할 수 있습니다.
               </p>
             )}
           </div>

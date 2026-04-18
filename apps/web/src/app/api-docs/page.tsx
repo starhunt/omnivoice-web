@@ -363,7 +363,7 @@ engines = httpx.get("${base}/v1/engines", headers={"Authorization": "Bearer ${ke
           description:
             "텍스트를 합성하여 generation_id와 audio_url을 반환합니다. 화자/보이스디자인/오토 모드 모두 이 엔드포인트로 처리.",
           requestNotes:
-            "speaker_id 지정 → 화자 복제 / design 지정 → 보이스 디자인 / 둘 다 null → 오토 보이스. engine은 auto, omnivoice, qwen3-tts 중 선택.",
+            "speaker_id 지정 → 등록 화자 복제 / voice_id 지정 → 엔진 기본 voice / design 지정 → 보이스 디자인. Qwen3-TTS API 방식에서는 voice_id는 CustomVoice 1.7B, speaker_id는 Base 0.6B clone 서버를 사용합니다.",
           samples: [
             {
               lang: "cURL",
@@ -498,7 +498,8 @@ httpx.post(
           method: "POST",
           path: "/v1/tts",
           title: "등록된 화자로 합성",
-          description: "speaker_id로 라이브러리에 저장된 화자를 재사용합니다.",
+          description:
+            "speaker_id로 라이브러리에 저장된 화자를 재사용합니다. engine이 qwen3-tts이면 source_audio_path가 있는 화자를 Base 0.6B clone 서버로 합성합니다.",
           samples: [
             {
               lang: "cURL",
